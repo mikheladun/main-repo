@@ -1,0 +1,2184 @@
+<?xml version="1.0" encoding="UTF-8"?>  
+<!-- ===========================================================================-->
+<!-- $Id: meterReadingImportJob.xml 10258 2012-07-23 13:57:14Z ets\georgez $          -->
+<!--                                                                            -->
+<!-- The following code is the property of The SPi Group.                       -->
+<!-- Any attempt to redistribute the contents of this file, in whole or in part,-->
+<!-- is strictly prohibited.                                                    -->
+<!--                                                                            -->
+<!-- Copyright (c) 2002 The SPi Group. All Rights Reserved.                     -->
+<!--                                                                            -->
+<!-- http://www.thespigroup.com                                                 -->
+<!-- ===========================================================================-->
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:aop="http://www.springframework.org/schema/aop" xmlns:p="http://www.springframework.org/schema/p"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:util="http://www.springframework.org/schema/util"
+    xsi:schemaLocation="http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.0.xsd
+        http://www.springframework.org/schema/batch http://www.springframework.org/schema/batch/spring-batch-2.1.xsd
+        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.0.xsd
+        http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util-2.0.xsd">
+
+    <import resource="sftpFixedBaseJob.xml"/>
+
+    <!-- data loading job -->
+    <job id="meterReadingImportJob" xmlns="http://www.springframework.org/schema/batch" incrementer="jobParametersIncrementer" restartable="false">
+        
+        <step id="processedMeterReadingFilesBefore">
+            <description>Move the meter reading files to the processed folder in case any file got stuck</description>
+            <tasklet task-executor="taskExecutor" ref="processedMeterReadingFileMover" />
+            <next on="*" to="decideRepeatMoveFileToProcessedBefore"/>
+        </step>
+        <decision id="decideRepeatMoveFileToProcessedBefore" decider="repeatProcessedMeterReadingFileMover">
+            <next on="LOOP" to="processedMeterReadingFilesBefore" />
+            <next on="COMPLETED" to="meterReadingImportJob.sftpFixedBaseJob" />
+            <next on="NO FILES" to="meterReadingImportJob.sftpFixedBaseJob" />
+        </decision>
+        
+        <step id="meterReadingImportJob.sftpFixedBaseJob">
+            <job ref="sftpFixedBaseJob" job-launcher="jobLauncher" job-parameters-extractor="uniqueRunIdJobParameterExtractor" />
+            <next on="*" to="checkUpdateAccountStatusTask"/>
+        </step>
+        
+        <step id="checkUpdateAccountStatusTask">
+            <description>Check and update the account status</description>
+            <tasklet task-executor="taskExecutor" ref="checkAccountStatusTask" />
+            <next on="*" to="processingMeterReadingFiles"/>
+        </step>
+        
+        <!-- THIS IS THE START OF THE LOOP, THESE STEPS WILL BE RUN MULTIPLE TIMES ( 1 + numberOfFiles ) -->
+        
+        <step id="processingMeterReadingFiles">
+            <description>Move meter reading import files to the processing folder</description>
+            <tasklet task-executor="taskExecutor" ref="processingMeterReadingFileMover" />
+            <next on="*" to="continueProcessingMeterReadingFiles"/>
+        </step>
+        <decision id="continueProcessingMeterReadingFiles" decider="repeatProcessingMeterReadingFileMover">
+             <next on="LOOP" to="loadStagingTables" />
+             <next on="COMPLETED" to="loadWpLookupTables" />
+             <end on="NO FILES"/>
+        </decision>
+        
+        <!-- THE STEPS BELOW WILL BE RUN ONCE FOR EACH FILE -->
+        
+        <step id="loadStagingTables">
+            <description>Import XML data from XML files into the staging reading table.</description>
+            <tasklet task-executor="taskExecutor" transaction-manager="dwTxnManager">
+                <chunk reader="documentMultiResourceReader" writer="documentItemWriter" commit-interval="${meter.read.job.commit.interval}" skip-limit="100000">
+                    <skippable-exception-classes>
+                        <include class="java.lang.Exception"/>
+                    </skippable-exception-classes>
+                </chunk>
+                <transaction-attributes isolation="DEFAULT" propagation="REQUIRES_NEW"/>
+                <listeners>
+                    <listener ref="etlStepListener"/>
+                </listeners>
+            </tasklet>
+            <next on="*" to="loadStagingReadingTable" />
+        </step>
+<!--  
+        <step id="loadStagingReadingTable" parent="loadStagingTables">
+            <description>Import XML data from XML files into the staging reading table.</description>
+            <tasklet task-executor="taskExecutor" transaction-manager="dwTxnManager">
+                <chunk reader="${meter.read.loadStagingReadingTable.reader}" writer="stPreReadingsItemWriter" commit-interval="${meter.read.job.commit.interval.large}" skip-limit="100000"/>
+            </tasklet>
+            <next on="*" to="loadStagingCollectorTable" />
+        </step>
+-->
+        <step id="loadStagingReadingTable">
+            <description>Import XML data from XML files into the staging reading table.</description>
+            <tasklet task-executor="taskExecutor" ref="loadStagingReadings" />
+            <next on="*" to="loadStagingCollectorTable" />
+        </step>
+
+        <step id="loadStagingCollectorTable" parent="loadStagingTables">
+            <description>Import XML data from XML files into the staging st_collector_rssi table.</description>
+            <tasklet task-executor="taskExecutor" transaction-manager="dwTxnManager">
+                <chunk reader="collectorMultiResourceReader" writer="collectorDataItemWriter" commit-interval="${meter.read.job.commit.interval.large}" skip-limit="100000"/>
+            </tasklet>
+            <next on="*" to="loadDwCollectors" />
+        </step>
+        <step id="loadDwCollectors">
+            <description>Loads into DW missing owner collector and regular collector ids</description>
+            <tasklet task-executor="taskExecutor" ref="loadDwCollectorsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="stagingToWpMeter" />
+        </step>
+        <step id="stagingToWpMeter" parent="loadStagingTables">
+            <description>Load the staging meter data into web presentment table.</description>
+            <tasklet task-executor="taskExecutor">
+                <chunk reader="wpStagingMeterReader" writer="wpMeterWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+            </tasklet>
+            <next on="*" to="stagingToWpMeterToMultiMeter" />
+        </step>
+        <step id="stagingToWpMeterToMultiMeter" parent="loadStagingTables">
+            <description>Load the staging MultiMeter into web presentment table.</description>
+            <tasklet task-executor="taskExecutor">
+                <chunk reader="wpStagingMultiMeterReader" writer="wpMultiMeterWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+            </tasklet>
+            <next on="*" to="updatePreStagingReadingMiuKey" />
+        </step>
+        <step id="updatePreStagingReadingMiuKey" parent="loadStagingTables">
+            <description>Update the MIU dimension keys in the staging pre reading table.</description>
+            <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+               <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingPreReadingsMiuKeyItemReader" writer="updatePreReadingKeysItemWriter" />
+               <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+            </tasklet>
+            <next on="*" to="preprocessReadingsBeforeMxRdDt"/>
+        </step>
+        <step id="preprocessReadingsBeforeMxRdDt" parent="loadStagingTables">
+            <description>Apply filtering and validation to the reading pre-staging table where the adjusted reading full date is before the st_meter_premise_lookup.max_reading_date</description>
+                <tasklet>
+                    <chunk reader="stPreReadingPreProcessingReaderBeforeMxRdDt" writer="stPreReadingPreProcessorWriterBeforeMxRdDt" commit-interval="${meter.read.job.commit.interval.large}" skip-limit="10000" />
+                </tasklet>
+            <next on="*" to="preprocessReadingsAfterMxRdDtPart" />
+        </step>
+        <step id="preprocessReadingsAfterMxRdDtPart">
+            <partition step="preprocessReadingsAfterMxRdDt" partitioner="preprocessReadingPartitioner">
+                <handler grid-size="${meter.read.job.preprocess.threads}" task-executor="asyncTaskExecutor" />
+            </partition>
+            <next on="*" to="updatePreStagingReadingPremiseKey" />
+        </step>
+        <!-- update dimension keys in st_pre_readings table -->
+        <step id="updatePreStagingReadingPremiseKey" parent="loadStagingTables">
+            <description>Update the premise dimension keys in the staging pre reading table.</description>
+            <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+               <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingPreReadingsPremiseKeyItemReader" writer="updatePreReadingKeysItemWriter" />
+               <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+            </tasklet>
+            <next on="*" to="updatePreStagingReadingAccountKey"/>
+        </step>
+        <step id="updatePreStagingReadingAccountKey" parent="loadStagingTables">
+            <description>Update the CIS account dimension keys in the staging pre reading table.</description>
+            <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+               <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingPreReadingsAccountKeyItemReader" writer="updatePreReadingKeysItemWriter" />
+               <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+            </tasklet>
+            <next on="*" to="updatePreStagingReadingReadingTypeKey"/>
+        </step>
+        <step id="updatePreStagingReadingReadingTypeKey" parent="loadStagingTables">
+            <description>Update the reading type dimension keys in the staging pre reading table.</description>
+            <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+               <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingPreReadingsReadingTypeKeyItemReader" writer="updatePreReadingKeysItemWriter" />
+               <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+            </tasklet>
+            <next on="*" to="updatePreStagingReadingReadingFlagKey"/>
+        </step>
+        <step id="updatePreStagingReadingReadingFlagKey" parent="loadStagingTables">
+            <description>Update the reading flag dimension keys in the staging pre reading table.</description>
+            <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+               <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingPreReadingsReadingFlagKeyItemReader" writer="updatePreReadingKeysItemWriter" />
+               <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+            </tasklet>
+            <next on="*" to="updatePreStagingReadingOwnerCollectorKey"/>
+        </step>
+        <step id="updatePreStagingReadingOwnerCollectorKey" parent="loadStagingTables">
+            <description>Update the owner collector dimension keys in the staging reading table.</description>
+            <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+               <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingPreReadingsOwnerCollectorKeyItemReader" writer="updatePreReadingKeysItemWriter" />
+               <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+            </tasklet>
+            <next on="*" to="loadProcessedPreReadingsPart" />
+        </step>
+        <step id="loadProcessedPreReadingsPart">
+            <description>Load the staging pre reading data into the ST and DW reading tables.</description>
+            <tasklet task-executor="taskExecutor" ref="preReadingsToStDwReadingsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="updateReadingMeterIds" />
+        </step>
+        <step id="updateReadingMeterIds">
+            <description>Load the meter ids into the st_readings table</description>
+            <tasklet task-executor="asyncTaskExecutor" ref="updateMeterReadingIdTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="reSynthesizePart"/>
+        </step>
+        <step id="reSynthesizePart">
+            <partition step="reSynthesize" partitioner="stReadingPartitioner">
+                <handler grid-size="${etl.partition.threads}" task-executor="asyncTaskExecutor"/>
+            </partition>
+            <next on="*" to="consumptionCalculatingPart"/>
+        </step>
+        <step id="consumptionCalculatingPart">
+            <partition step="consumptionCalculating" partitioner="stReadingPartitioner">
+                <handler grid-size="${etl.partition.threads}" task-executor="asyncTaskExecutor"/>
+            </partition>
+            <next on="*" to="loadWpAndDwDimTables"/>
+        </step>
+        <split id="loadWpAndDwDimTables" task-executor="asyncTaskExecutor" next="updateDimKeys">
+            <!-- load WP tables -->
+            <flow>
+                <step id="stagingPremiseToWp" parent="loadStagingTables">
+                    <description>Load the staging premise data into the web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}">
+                        <chunk reader="wpStagingPremiseItemReader" writer="wpPremiseItemWriter" commit-interval="${meter.read.job.commit.interval.large}"/>
+                    </tasklet>
+                   <next on="*" to="stagingToWpAccount"/>
+                </step>
+                <step id="stagingToWpAccount" parent="loadStagingTables">
+                    <description>Load the staging account data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingAccountReader" writer="wpAccountWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToWpMeterToPremise"/>
+                </step>
+                <step id="stagingToWpMeterToPremise" parent="loadStagingTables">
+                    <description>Load the staging premise to account data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingMeterToPremiseReader" writer="wpMeterToPremiseWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToWpPremiseToAccount"/>
+                </step>
+                <step id="stagingToWpPremiseToAccount" parent="loadStagingTables">
+                    <description>Load the staging premise to account data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingPremiseToAccountReader" writer="wpPremiseToAccountWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToWpMeterGroup"/>
+                </step>
+                <step id="stagingToWpMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging meter group data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="stagingMeterGroupReader" writer="wpMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToWpMeterToMeterGroup"/>
+                </step>
+                <step id="stagingToWpMeterToMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging meter to meter group data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="stagingMeterToMeterGroupReader" writer="wpMeterToMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingDeletePremseToWp"/>
+                </step>
+                <step id="stagingDeletePremseToWp" parent="loadStagingTables">
+                    <description>Load the staging delete premise into the web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingDeletePremiseItemReader" writer="wpDeletePremiseItemWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                    <next on="*" to="stagingToWpDeleteAccount"/>
+                </step>
+                <step id="stagingToWpDeleteAccount" parent="loadStagingTables">
+                    <description>Load the staging account data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingDeleteAccountReader" writer="wpDeleteAccountWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToWpDeleteMeter"/>
+                </step>
+                <step id="stagingToWpDeleteMeter" parent="loadStagingTables">
+                    <description>Load the staging delete meter data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingDeleteMeterReader" writer="wpDeleteMeterWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingDeleteToWpMeterGroup"/>
+                </step> 
+                <step id="stagingDeleteToWpMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging meter group data into wp_meter_group table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingDeleteMeterGroupReader" writer="wpDeleteMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingDeleteToWpMeterToMeterGroup"/>
+                </step>
+                <step id="stagingDeleteToWpMeterToMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging delete meter from meter group data into web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="wpStagingDeleteMeterFromMeterGroupReader" writer="wpDeleteMeterFromMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                    <next on="*" to="stReadingToUpdateWp"/>
+                </step>
+                <step id="stReadingToUpdateWp">
+                    <description>Update the staging reading data in the web presentment table.</description>
+                    <partition step="stReadingToUpdateWpStep" partitioner="consumptionItemUpdaterPartitioner">
+                        <handler grid-size="${etl.partition.threads}" task-executor="asyncTaskExecutor"/>
+                    </partition>
+                    <next on="*" to="stagingReadingToWp"/>
+                </step>
+                <step id="stagingReadingToWp">
+                    <description>Load the staging reading data into the web presentment table.</description>
+                    <partition step="stagingReadingToWpStep" partitioner="consumptionItemInserterPartitioner">
+                        <handler grid-size="${etl.partition.threads}" task-executor="asyncTaskExecutor"/>
+                    </partition>
+                </step>
+            </flow>
+            <!-- load alarm data to WP -->
+            <flow>
+                <step id="stagingAlarmToWp" parent="loadStagingTables">
+                    <description>Load the staging alarms into the web presentment table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="stagingAlarmReader" writer="wpAlarmItemWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                </step>
+            </flow>
+            <!-- load DW Dimension tables -->
+            <flow>
+                <step id="stagingPremiseToDw" parent="loadStagingTables">
+                    <description>Load the staging premise data into the DW table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="dwStagingPremiseItemReader" writer="dwPremiseItemWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwAccount"/>
+                </step>
+                <step id="stagingToDwAccount" parent="loadStagingTables">
+                    <description>Load the staging account data into the DW account table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingAccountReader" writer="dwAccountWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwMeter"/>
+                </step>
+                <step id="stagingToDwMeter" parent="loadStagingTables">
+                    <description>Load the staging account data into the DW account table.</description>
+                    <!-- WDR-NEP-1553: single threaded due to order of compound/deduct relationships make/undo -->
+                    <tasklet task-executor="taskExecutor" transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingMeterReader" writer="dwMeterWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwMeterMulti"/>
+                </step>
+                <step id="stagingToDwMeterMulti" parent="loadStagingTables">
+                    <description>Load the staging multi meter data into the DW meter table.</description>
+                    <!-- WDR-NEP-1553: single threaded due to order of compound/deduct relationships made/undo -->
+                    <tasklet task-executor="taskExecutor" transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingMultiMeterReader" writer="dwMultiMeterWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwMeterToPremise"/>
+                </step>
+                <step id="stagingToDwMeterToPremise" parent="loadStagingTables">
+                    <description>Load the staging premise to account data into the DW account table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingMeterToPremiseReader" writer="dwMeterToPremiseWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwPremiseToAccount"/>
+                </step>
+                <step id="stagingToDwPremiseToAccount" parent="loadStagingTables">
+                    <description>Load the staging premise to account data into the DW account table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingPremiseToAccountReader" writer="dwPremiseToAccountWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwMeterGroup"/>
+                </step>
+                <step id="stagingToDwMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging meter group data into the DW account table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="stagingMeterGroupReader" writer="dwMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwMeterToMeterGroup"/>
+                </step>
+                <step id="stagingToDwMeterToMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging meter to meter group data into the DW account table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="stagingMeterToMeterGroupReader" writer="dwMeterToMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwDeletePremise"/>
+                </step>
+                <step id="stagingToDwDeletePremise" parent="loadStagingTables">
+                    <description>Load the staging account data into the DW account table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingDeletePremiseItemReader" writer="dwDeletePremiseWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwDeleteAccount"/>
+                </step>
+                <step id="stagingToDwDeleteAccount" parent="loadStagingTables">
+                    <description>Load the staging account data into the DW account table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingDeleteAccountReader" writer="dwDeleteAccountWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingToDwDeleteMeter"/>
+                </step>
+                <step id="stagingToDwDeleteMeter" parent="loadStagingTables">
+                    <description>Load the staging delete meter data into the DW meter table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="dwStagingDeleteMeterReader" writer="dwDeleteMeterWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingDeleteToDwMeterGroup"/>
+                </step>
+
+                <step id="stagingDeleteToDwMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging meter group data into DW meter group dim table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="dwStagingDeleteMeterGroupReader" writer="dwDeleteMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                   <next on="*" to="stagingDeleteToDwMeterToMeterGroup"/>
+                </step>
+
+                <step id="stagingDeleteToDwMeterToMeterGroup" parent="loadStagingTables">
+                    <description>Load the staging delete meter from meter group data into the DW meter to meter group map table.</description>
+                    <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" >
+                        <chunk reader="dwStagingDeleteMeterFromMeterGroupReader" writer="dwDeleteMeterFromMeterGroupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                </step>
+            </flow>
+        </split>
+        <split id="updateDimKeys" task-executor="asyncTaskExecutor" next="loadDwFactTables">
+            <!-- update dimension keys in st_readings table -->
+            <flow>
+                <step id="updateReadingMiuKey" parent="loadStagingTables">
+                    <description>Update the MIU dimension keys in the staging reading table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                       <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingReadingsMiuKeyItemReader" writer="updateReadingKeysItemWriter" />
+                       <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+                    </tasklet>
+                    <next on="*" to="updateReadingPremiseKey"/>
+                </step>
+                <step id="updateReadingPremiseKey" parent="loadStagingTables">
+                    <description>Update the premise dimension keys in the staging reading table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                       <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingReadingsPremiseKeyItemReader" writer="updateReadingKeysItemWriter" />
+                       <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+                    </tasklet>
+                    <next on="*" to="updateReadingAccountKey"/>
+                </step>
+                <step id="updateReadingAccountKey" parent="loadStagingTables">
+                    <description>Update the CIS account dimension keys in the staging reading table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                       <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingReadingsAccountKeyItemReader" writer="updateReadingKeysItemWriter" />
+                       <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+                    </tasklet>
+                    <next on="*" to="updateReadingReadingFlagKey"/>
+                </step>
+                <step id="updateReadingReadingFlagKey" parent="loadStagingTables">
+                    <description>Update the reading flag dimension keys in the staging reading table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                       <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingReadingsReadingFlagKeyItemReader" writer="updateReadingKeysItemWriter" />
+                       <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+                    </tasklet>
+                    <next on="*" to="updateReadingOwnerCollectorKey"/>
+                </step>
+                <step id="updateReadingOwnerCollectorKey" parent="loadStagingTables">
+                    <description>Update the owner collector dimension keys in the staging reading table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                       <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingReadingsOwnerCollectorKeyItemReader" writer="updateReadingKeysItemWriter" />
+                       <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+                    </tasklet>
+                </step>
+            </flow>
+            <!-- update dimension keys in st_collector_rssi table -->
+            <flow>
+                <step id="updateCollectorRssiMiuKey" parent="loadStagingTables">
+                    <description>Update the MIU dimension keys in the staging collector RSSI table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                       <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingCollectorRssiMiuKeyItemReader" writer="updateCollectorRssiKeysItemWriter" />
+                       <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+                    </tasklet>
+                    <next on="*" to="updateCollectorRssiCollectorKey"/>
+                </step>
+                <step id="updateCollectorRssiCollectorKey" parent="loadStagingTables">
+                    <description>Update the collector dimension keys in the staging collector RSSI table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                       <chunk commit-interval="${meter.read.job.commit.interval.large}" reader="stagingCollectorRssiCollectorKeyItemReader" writer="updateCollectorRssiKeysItemWriter" />
+                       <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+                    </tasklet>
+                </step>
+            </flow>
+        </split>
+        <split id="loadDwFactTables" task-executor="asyncTaskExecutor" next="deleteStagingPremises">
+            <!-- load reading fact table -->
+            <flow>
+                <step id="stagingToDwReading">
+                    <description>Load the staging reading data into the DW reading table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" ref="stagingToDwReadingsTask" transaction-manager="dwTxnManager" />
+                </step>
+            </flow>
+            <!-- load collector RSSI Fact table -->
+            <flow>
+                <step id="stagingToDwCollectorRssi" parent="loadStagingTables">
+                    <description>Load the staging reading data into the DW Collector RSSI table.</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}"  transaction-manager="dwTxnManager">
+                        <chunk reader="dwCollectorRssiItemReader" writer="DwCollectorRssiWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                </step>
+            </flow>
+        </split>
+        
+        <step id="deleteStagingPremises">
+            <description>Delete processed records in the staging premise table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingPremisesTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingAccounts"/>
+        </step>
+        <step id="deleteStagingAccounts">
+            <description>Delete processed records in the staging account table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingAccountsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingMeters"/>
+        </step>
+        <step id="deleteStagingMeters">
+            <description>Delete processed records in the staging meter table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingMetersTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingMultiMeters"/>
+        </step>
+        <step id="deleteStagingMultiMeters">
+            <description>Delete the staging multi meters transactions</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingMultiMetersTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingMeterToPremise"/>
+        </step>
+        <step id="deleteStagingMeterToPremise">
+            <description>Delete processed records in the staging meter to premise table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingMeterToPremiseTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingPremiseToAccount"/>
+        </step>
+        <step id="deleteStagingPremiseToAccount">
+            <description>Delete processed records in the staging premise to account table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingPremiseToAccountsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingMeterGroups"/>
+        </step>
+        <step id="deleteStagingMeterGroups">
+            <description>Delete processed records in the staging meter group table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingMeterGroupsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingMeterToMeterGroups"/>
+        </step>
+        <step id="deleteStagingMeterToMeterGroups">
+            <description>Delete processed records in the staging meter to meter group table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingMeterToMeterGroupsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingDeletePremises"/>
+        </step>
+        <!-- Staging Delete Table deletion tasks -->
+         <step id="deleteStagingDeletePremises">
+            <description>Delete the records in the st_delete_account table if they're loaded to both dw and wp.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingDeletePremisesTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingDeleteAccounts"/>
+        </step>
+        <step id="deleteStagingDeleteAccounts">
+            <description>Delete the records in the st_delete_account table if they're loaded to both dw and wp.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingDeleteAccountsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingDeleteMeters"/>
+        </step>
+        <step id="deleteStagingDeleteMeters">
+            <description>Delete the records in the st_delete_meter table if they're loaded to both dw and wp.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingDeleteMetersTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingDeleteMeterGroups"/>
+        </step>
+        <step id="deleteStagingDeleteMeterGroups">
+            <description>Update the dimension keys in the staging meter group table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingDeleteMeterGroupsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingDeleteMeterFromMeterGroups"/>
+        </step>
+        <step id="deleteStagingDeleteMeterFromMeterGroups">
+            <description>Update the dimension keys in the staging meter to meter group table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingDeleteMeterFromMeterGroupsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deleteStagingAlarms"/>
+        </step>
+
+        <step id="deleteStagingAlarms">
+            <description>Update the dimension keys in the staging meter group table.</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingAlarmsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="deletePreReadings"/>
+        </step>
+        <step id="deletePreReadings">
+            <description>Delete the records in the st_pre_readings table if they're loaded to dw and have been processed.</description>
+            <tasklet task-executor="taskExecutor" ref="deletePreReadingsTask" transaction-manager="dwTxnManager" />
+            <next on="*" to="processedMeterReadingFiles"/>
+        </step>
+        <step id="processedMeterReadingFiles">
+            <description>Move the meter reading files to the processed folder after import has completed</description>
+            <tasklet task-executor="taskExecutor" ref="processedMeterReadingFileMover" />
+            <next on="*" to="meterReadingImportJob.sftpFixedBaseJob.loop"/>
+        </step> 
+        
+        <step id="meterReadingImportJob.sftpFixedBaseJob.loop">
+            <job ref="sftpFixedBaseJob" job-launcher="jobLauncher" job-parameters-extractor="uniqueRunIdJobParameterExtractor"/>
+            <next on="*" to="processingMeterReadingFiles"/>
+        </step>
+        
+        <!-- THIS IS THE END OF THE LOOPED STEPS -->
+        
+        <!-- THIS STEPS BELOW ONLY RUN AFTER ALL OF THE FILES HAVE BEEN PROCESSED -->
+        
+        <split id="loadWpLookupTables" task-executor="asyncTaskExecutor" next="deleteStagingReadingsWhenInvalidAndLoadedToDW">
+            <!-- load wp_meter_premise tables-->
+            <flow>
+                <step id="stagingToWpMeterPremiseLookup" parent="loadStagingTables">
+                    <description>Load the staging meter to premise lookup tables to WP </description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}">
+                        <chunk reader="stMeterPremiseLookupSyncReader" writer="wpMeterPremiseLookupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                </step>
+            </flow>
+            <!-- load wp_premise_acnt tables -->
+            <flow>
+                <step id="stagingToWpPremiseAcntLookup" parent="loadStagingTables">
+                    <description>Load the staging premise to account lookup tables</description>
+                    <tasklet task-executor="asyncTaskExecutor" throttle-limit="${meter.read.job.throttle.limit}">
+                        <chunk reader="stPremiseAcntLookupSyncReader" writer="wpPremiseAcntLookupWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+                    </tasklet>
+                </step>
+            </flow>
+        </split>
+
+        <step id="deleteStagingReadingsWhenInvalidAndLoadedToDW">
+            <description>Delete the staging readings that are invalid and loaded to DW</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingReadingsWhenInvalidAndLoadedToDWTasklet"/>
+            <next on="*" to="deleteStagingReadings"/>
+        </step>
+
+        <step id="deleteStagingReadings">
+            <description>Delete the staging readings that are more than X weeks old</description>
+            <tasklet task-executor="taskExecutor" ref="deleteStagingReadingsTask"/>
+        </step>
+    </job>
+
+      <bean id="loadStagingReadings" class="com.spi.wdr.jobs.etl.OracleSqlLoaderTasklet" scope="step">
+     	<!-- The command to execute -->
+     	<property name="command" value="${meter.read.etl.home}/iq_etl.sh" />
+     	<property name="timeout" value="50000" />
+     	<property name="interruptOnCancel" value="true" />
+     	<!-- Because the system command is executed in an asynchronous way by default, 
+     		 the tasklet checks periodically to see if it has completed. By default, 
+     		 this value is set to one second, but you can configure it to any value you wish in milliseconds. -->
+     	<property name="terminationCheckInterval" value="5000" />
+     	<!-- This is a list of environment parameters you can set prior to the execution of your command -->
+     	<property name="environmentParams" value="ORCL_BIN=${meter.read.orcl.bin},IQ_ETL_HOME=${meter.read.etl.home},IQ_DATA_DIR=${meter.read.data.dir}" />
+      </bean>
+
+    <!--**************************************************************************************-->
+    <!-- DW and WP writers -->
+    <!--**************************************************************************************-->
+    <bean id="stagingItemReader" class="com.spi.wdr.jobs.etl.StagingItemReader" abstract="true" />
+    <bean id="stagingMultiThreadedItemReader" parent="stagingItemReader" abstract="true" />
+       
+    <bean id="abstractJdbcReader" class="com.spi.wdr.jobs.etl.ParameterizedJdbcCursorItemReader" abstract="true">
+        <property name="fetchSize" value="${meter.read.fetch.size}" />
+        <property name="dataSource" ref="dwDataSource" />
+        <property name="driverSupportsAbsolute" value="true" />
+    </bean>        
+    
+    <bean id="wpStagingPremiseItemReader" parent="stagingItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingPremiseItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StPremise" />
+                    </bean>
+                </property>
+            </bean>
+        </property>
+    </bean>
+
+    <bean id="wpPremiseItemWriter" class="com.spi.wdr.jobs.etl.WpPremiseItemWriter">
+        <property name="premiseDao" ref="premiseDao" />
+    </bean>
+
+    <bean id="dwStagingPremiseItemReader" parent="stagingItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingPremiseItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StPremise" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="dwPremiseItemWriter" class="com.spi.wdr.jobs.etl.DwPremiseItemWriter">
+        <property name="dwPremiseDao" ref="dwPremiseDao" />
+    </bean>
+    
+    <bean id="wpStagingDeletePremiseItemReader" parent="stagingItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingDeletePremiseItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StPremise" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="dwStagingDeletePremiseItemReader" parent="stagingItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingDeletePremiseItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StPremise" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <!--**************************************************************************************-->
+    <!-- Update dimension keys in the staging reading table -->
+    <!--**************************************************************************************-->
+    <bean id="stagingReadingsMiuKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingReadingsMiuKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingReadingsPremiseKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingReadingsPremiseKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingReadingsAccountKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingReadingsAccountKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="stagingReadingsReadingFlagKeyItemReaderOld" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingReadingsReadingFlagKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="stagingReadingsReadingFlagKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingReadingsReadingFlagKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="stagingReadingsOwnerCollectorKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingReadingOwnerCollectorKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="updateReadingKeysItemWriter" class="com.spi.wdr.jobs.etl.UpdateReadingKeysItemWriter">
+        <property name="readingDao" ref="readingDao" />
+    </bean>
+
+    <!--**************************************************************************************-->
+    <!-- Update dimension keys in the staging collector RSSI table -->
+    <!--**************************************************************************************-->
+    <bean id="stagingCollectorRssiMiuKeyItemReader" parent="stagingItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingCollectorRssiMiuKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingCollectorRssiCollectorKeyItemReader" parent="stagingItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingCollectorRssiCollectorKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="updateCollectorRssiKeysItemWriter" class="com.spi.wdr.jobs.etl.UpdateCollectorRssiKeysItemWriter">
+        <property name="stCollectorRssiDao" ref="stCollectorRssiDao" />
+    </bean>
+    
+    <!--**************************************************************************************-->
+
+
+    <bean id="stagingValueReaderForCalc" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingValueReaderForCalc.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StagingReading" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <!-- This is for re-synthesize -->
+    <bean id="stagingValueReaderForSynthesize" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingValueReaderForSynthesize.sql}" />
+                <property name="dataSource" ref="dwDataSource" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StagingReading" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="wpStagingAccountReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingAccountReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.WdrCisAccount" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="wpStagingDeleteAccountReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingDeleteAccountReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StAccount" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="wpStagingDeleteMeterReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingDeleteMeterReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeter" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="wpStagingMeterReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingMeterReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeter"/>
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="wpStagingMultiMeterReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingMultiMeterReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeter" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="dwStagingPremiseToAccountReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingPremiseToAccountReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StPremiseToAccount" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="wpStagingMeterToPremiseReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingMeterToPremiseReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterToPremise" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="wpStagingPremiseToAccountReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingPremiseToAccountReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StPremiseToAccount" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingMeterGroupReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingMeterGroupReader.sql}" />
+                <property name="dataSource" ref="dwDataSource" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterGroup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingMeterToMeterGroupReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingMeterToMeterGroupReader.sql}" />
+                <property name="rowMapper">
+                    <bean  class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterToMeterGroup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <!-- STAGING DELETE READERS -->
+    <bean id="dwStagingDeleteMeterGroupReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingDeleteMeterGroupReader.sql}" />
+                <property name="rowMapper">
+                    <bean  class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterGroup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="wpStagingDeleteMeterGroupReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingDeleteMeterGroupReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterGroup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="dwStagingDeleteMeterFromMeterGroupReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingDeleteMeterFromMeterGroupReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterToMeterGroup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="wpStagingDeleteMeterFromMeterGroupReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingDeleteMeterFromMeterGroupReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterToMeterGroup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="stagingAlarmReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingAlarmReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StAlarm" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="wpStagingItemReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.WdrConsumption" />
+                    </bean>
+                </property>
+                <property name="fetchSize" value="${meter.read.wp.consumption.fetch.size}" />
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="wpStagingItemReaderForUpdate" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.wpStagingItemReaderForUpdate.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.WdrConsumption" />
+                    </bean>
+                </property>
+                <property name="fetchSize" value="${meter.read.wp.consumption.fetch.size}" />
+            </bean>
+        </property>
+    </bean>
+    
+    <bean id="dwStagingAccountReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingAccountReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StAccount" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="dwStagingDeleteAccountReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingDeleteAccountReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StAccount" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="dwStagingDeleteMeterReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingDeleteMeterReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeter" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="dwStagingMeterReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingMeterReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeter" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="dwStagingMultiMeterReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingMultiMeterReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeter" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="dwStagingMeterToPremiseReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingMeterToPremiseReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterToPremise" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="dwStagingItemReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwStagingItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.Reading" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="dwCollectorRssiItemReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.dwCollectorRssiItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StDwCollectorRssi" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="meterPremiseLookupReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.meterPremiseLookupReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterToPremiseLookup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    <bean id="wpAccountWriter" class="com.spi.wdr.jobs.etl.WpCisAccountWriter">
+        <property name="cisAccountDao" ref="cisAccountDao" />
+        <property name="userDao" ref="userDao" />
+    </bean>
+    
+    <bean id="wpDeleteAccountWriter" class="com.spi.wdr.jobs.etl.wp.WpDeleteCisAccountWriter">
+        <property name="cisAccountDao" ref="cisAccountDao" />
+        <property name="stDeleteTxnDao" ref="stDeleteTxnDao" />
+    </bean>
+    
+    <bean id="wpDeleteMeterWriter" class="com.spi.wdr.jobs.etl.wp.WpDeleteMeterWriter">
+        <property name="stDeleteTxnDao" ref="stDeleteTxnDao" />
+    </bean>
+    
+    <bean id="wpMeterWriter" class="com.spi.wdr.jobs.etl.wp.WpMeterWriter">
+        <property name="meterDao" ref="meterDao"/>
+        <property name="wpMeterMapDao" ref="wpMeterMapDao"/>
+        <property name="stMeterDao" ref="stMeterDao"/>
+    </bean>
+    
+    <bean id="wpMultiMeterWriter" class="com.spi.wdr.jobs.etl.wp.WpMultiMeterItemWriter">
+        <property name="meterDao" ref="meterDao" />
+        <property name="wpMeterMapDao" ref="wpMeterMapDao" />
+        <property name="stMultiMeterDao" ref="stMultiMeterDao" />
+    </bean>
+    
+    <bean id="wpMeterToPremiseWriter" class="com.spi.wdr.jobs.etl.WpMeterToPremiseItemWriter">
+        <property name="meterDao" ref="meterDao" />
+        <property name="premiseDao" ref="premiseDao" />
+        <property name="wpMeterMapDao" ref="wpMeterMapDao" />
+        <property name="stMeterToPremiseDao" ref="stMeterToPremiseDao" />
+    </bean>
+    
+    <bean id="wpPremiseToAccountWriter" class="com.spi.wdr.jobs.etl.WpPremiseToAccountWriter">
+        <property name="premiseDao" ref="premiseDao" />
+        <property name="cisAccountDao" ref="cisAccountDao" />
+        <property name="stPremiseToAccountDao" ref="stPremiseToAccountDao" />
+    </bean>
+
+    <bean id="wpMeterGroupWriter" class="com.spi.wdr.jobs.etl.WpMeterGroupWriter">
+        <property name="meterGroupDao" ref="meterGroupDao" />
+    </bean>
+
+    <bean id="wpMeterToMeterGroupWriter" class="com.spi.wdr.jobs.etl.WpMeterToMeterGroupWriter">
+        <property name="stMeterToMeterGroupDao" ref="stMeterToMeterGroupDao" />
+        <property name="meterDao" ref="meterDao" />
+        <property name="meterGroupDao" ref="meterGroupDao" />
+    </bean>
+
+    <bean id="wpDeleteMeterGroupWriter" class="com.spi.wdr.jobs.etl.wp.WpDeleteMeterGroupWriter">
+        <property name="stDeleteTransactionDao" ref="stDeleteTxnDao" />
+        <property name="meterGroupDao" ref="meterGroupDao" />
+        <property name="consGrpDao" ref="consGrpDao" />
+    </bean>
+
+    <bean id="wpDeleteMeterFromMeterGroupWriter" class="com.spi.wdr.jobs.etl.wp.WpDeleteMeterFromMeterGroupWriter">
+        <property name="stDeleteTransactionDao" ref="stDeleteTxnDao" />
+        <property name="meterDao" ref="meterDao" />
+        <property name="meterGroupDao" ref="meterGroupDao" />
+    </bean>
+
+    <bean id="wpConsItemWriter" class="com.spi.wdr.jobs.etl.ConsumptionItemWriter" scope="step">
+        <property name="consumptionDao" ref="consDao" />
+        <property name="readingDao" ref="readingDao" />
+        <property name="mtpLookupDao" ref="mtpLookupDao" />
+    </bean>
+    
+    <bean id="wpAlarmItemWriter" class="com.spi.wdr.jobs.etl.WpAlarmItemWriter">
+        <property name="userDao" ref="userDao" />
+        <property name="meterDao" ref="meterDao" />
+        <property name="alarmDao" ref="alarmDao" />
+        <property name="stAlarmDao" ref="stAlarmDao" />
+        <property name="cisAccountDao" ref="cisAccountDao" />
+        <property name="acntMeterMapDao" ref="acntMeterMapDao" />
+        <property name="alarmTypeMap" ref="alarmTypeMap" />
+    </bean>
+
+    <bean id="wpConsItemUpdate" class="com.spi.wdr.jobs.etl.ConsumptionItemUpdater">
+        <property name="consumptionDao" ref="consDao" />
+        <property name="readingDao" ref="readingDao" />
+        <property name="consumptionProfileDao" ref="profileDao" />
+    </bean>
+
+    <bean id="consumptionWriter" class="com.spi.wdr.jobs.etl.ConsumptionCalcWriter" scope="step">
+        <property name="readingTimeAdjuster" ref="coreRoundingReadTimeAdjuster" />
+        <property name="readingDao" ref="readingDao" />
+        <property name="readingFactDao" ref="readingFactDao" />
+        <property name="profileManager" ref="consProfileManager" />
+        <property name="mtpLookupDao" ref="mtpLookupDao" />
+        <property name="maxGapDays" value="${meter.read.max.gap.days}" />
+        <property name="dwMaxSearchDays" value="${meter.read.dw.max.search.days}" />        
+        <property name="intervalList" value="${meter.read.import.valid.interval}" />
+        <property name="stAlarmDao" ref="stAlarmDao" />
+        <property name="alarmTypeDescMap" ref="alarmTypeDescMap" />
+        <property name="meterDao" ref="meterDao" />
+        <property name="alarmDao" ref="alarmDao" />
+        <property name="revFlowMap" ref="revFlowStateMap" />
+        <property name="leakStateMap" ref="leakStateMap" />
+        <property name="defaultLeakState" value="${meter.read.default.leakState}"/>
+        <property name="defaultRevFlowState" value="${meter.read.default.reverseFlowState}"/>
+        <property name="commitInterval" value="${meter.read.multi.commit.size}" />
+        <property name="dwMeterDao" ref="dwMeterDao" />
+        <property name="wdrAlerterManager" ref="wdrAlerterManager" />
+        <property name="executorCompletionManager" ref="executorCompletionManager" />
+        <property name="nestedAsyncTaskExecutor" ref="nestedAsyncTaskExecutor" />
+    </bean>
+
+    <bean id="reSynthesizeWriter" class="com.spi.wdr.jobs.etl.ReSynthesizeTask" scope="step">
+        <property name="readingTimeAdjuster" ref="coreRoundingReadTimeAdjuster" />
+        <property name="readingDao" ref="readingDao" />
+        <property name="readingFactDao" ref="readingFactDao" />
+        <property name="profileManager" ref="consProfileManager" />
+        <property name="mtpLookupDao" ref="mtpLookupDao" />
+        <property name="maxGapDays" value="${meter.read.max.gap.days}" />
+        <property name="dwMaxSearchDays" value="${meter.read.dw.max.search.days}" />
+        <property name="intervalList" value="${meter.read.import.valid.interval}" />
+        <property name="stAlarmDao" ref="stAlarmDao" />
+        <property name="alarmTypeDescMap" ref="alarmTypeDescMap" />
+        <property name="meterDao" ref="meterDao" />
+        <property name="alarmDao" ref="alarmDao" />
+        <property name="revFlowMap" ref="revFlowStateMap" />
+        <property name="leakStateMap" ref="leakStateMap" />
+        <property name="defaultLeakState" value="${meter.read.default.leakState}"/>
+        <property name="defaultRevFlowState" value="${meter.read.default.reverseFlowState}"/>
+        <property name="commitInterval" value="${meter.read.fetch.size}" />
+        <property name="dwMeterDao" ref="dwMeterDao" />
+        <property name="wdrAlerterManager" ref="wdrAlerterManager" />
+        <property name="executorCompletionManager" ref="executorCompletionManager" />
+        <property name="nestedAsyncTaskExecutor" ref="nestedAsyncTaskExecutor" />
+    </bean>
+
+    <bean id="dwAccountWriter" class="com.spi.wdr.jobs.etl.DwCisAccountWriter">
+        <property name="dwCisAccountDao" ref="dwCisAccountDao" />
+    </bean>
+    
+    <bean id="dwDeletePremiseWriter" class="com.spi.wdr.jobs.etl.dw.DwDeletePremiseItemWriter">
+        <property name="deleteDao" ref="stDeleteTxnDao" />
+        <property name="dwPremiseDao" ref="dwPremiseDao" />
+        <property name="premiseAcntLookupDao" ref="stPremiseAcntLookupDao" />
+        <property name="meterPremiseLookupDao" ref="mtpLookupDao" />
+    </bean>
+    
+    <bean id="dwDeleteAccountWriter" class="com.spi.wdr.jobs.etl.dw.DwDeleteAccountWriter">
+        <property name="dwCisAccountDao" ref="dwCisAccountDao" />
+        <property name="stPremiseAcntLookupDao" ref="stPremiseAcntLookupDao" />
+        <property name="deleteDao" ref="stDeleteTxnDao" />
+    </bean>
+    
+    <bean id="dwDeleteMeterWriter" class="com.spi.wdr.jobs.etl.dw.DwDeleteMeterWriter">
+        <property name="deleteDao" ref="stDeleteTxnDao" />
+        <property name="dwMeterDao" ref="dwMeterDao" />
+    </bean>
+
+    <bean id="dwMeterWriter" class="com.spi.wdr.jobs.etl.DwMeterWriter">
+        <property name="dwMeterDao" ref="dwMeterDao" />
+        <property name="mtuPortDelimiter" ref="mtuPortDelimiter"/>
+    </bean>
+
+    <bean id="dwMultiMeterWriter" class="com.spi.wdr.jobs.etl.dw.DwMultiMeterItemWriter">
+        <property name="meterDao" ref="dwMeterDao" />
+        <property name="stMultiMeterDao" ref="stMultiMeterDao" />
+        <property name="mtuPortDelimiter" ref="mtuPortDelimiter"/>
+    </bean>
+
+    <bean id="dwMeterToPremiseWriter" class="com.spi.wdr.jobs.etl.DwMeterToPremiseItemWriter">
+        <property name="mtpLookupDao" ref="mtpLookupDao" />
+        <property name="stMeterToPremiseDao" ref="stMeterToPremiseDao" />
+        <property name="dwMeterDao" ref="dwMeterDao" />
+        <property name="dwPremiseDao" ref="dwPremiseDao" />
+    </bean>
+    
+    <bean id="dwPremiseToAccountWriter" class="com.spi.wdr.jobs.etl.DwPremiseToAccountWriter">
+        <property name="stPremiseToAccountDao" ref="stPremiseToAccountDao" />
+        <property name="dwPremiseDao" ref="dwPremiseDao" />
+        <property name="dwCisAccountDao" ref="dwCisAccountDao" />
+        <property name="stPremiseAcntLookupDao" ref="stPremiseAcntLookupDao" />
+    </bean>
+
+    <bean id="dwMeterGroupWriter" class="com.spi.wdr.jobs.etl.DwMeterGroupWriter">
+        <property name="dwMeterGroupDao" ref="dwMeterGroupDao" />
+    </bean>
+
+    <bean id="dwMeterToMeterGroupWriter" class="com.spi.wdr.jobs.etl.DwMeterToMeterGroupWriter">
+        <property name="stMeterToMeterGroupDao" ref="stMeterToMeterGroupDao" />
+        <property name="dwMeterDao" ref="dwMeterDao" />
+        <property name="dwMeterGroupDao" ref="dwMeterGroupDao" />
+    </bean>
+
+    <bean id="dwDeleteMeterGroupWriter" class="com.spi.wdr.jobs.etl.dw.DwDeleteMeterGroupWriter">
+        <property name="deleteDao" ref="stDeleteTxnDao" />
+        <property name="dwMeterGroupDao" ref="dwMeterGroupDao" />
+    </bean>
+    
+    <bean id="dwDeleteMeterFromMeterGroupWriter" class="com.spi.wdr.jobs.etl.dw.DwDeleteMeterFromMeterGroupWriter">
+        <property name="stDeleteTransactionDao" ref="stDeleteTxnDao" />
+        <property name="dwMeterDao" ref="dwMeterDao" />
+        <property name="dwMeterGroupDao" ref="dwMeterGroupDao" />
+    </bean>
+
+    <bean id="dwReadingItemWriter" class="com.spi.wdr.repository.dw.ReadingFactItemWriter" scope="step">
+        <property name="readingFactDao" ref="readingFactDao" />
+        <property name="readingDao" ref="readingDao" />
+    </bean>
+
+    <bean id="DwCollectorRssiWriter" class="com.spi.wdr.repository.dw.DwCollectorRssiWriter">
+        <property name="stCollectorRssiDao" ref="stCollectorRssiDao" />
+        <property name="dwCollectorRssiDao" ref="dwCollectorRssiDao" />
+    </bean>
+    
+    <!-- DeletePremise writer -->
+    <bean id="wpDeletePremiseItemWriter" class="com.spi.wdr.jobs.etl.wp.WpDeletePremiseItemWriter">
+        <property name="stDeleteTransactionDao" ref="stDeleteTxnDao" />
+        <property name="premiseDao" ref="premiseDao" />
+    </bean>
+    
+    <!--**************************************************************************************************************-->
+    <!-- WDR Document Converter -->
+    <!--**************************************************************************************************************-->
+    <!-- WdrDocument Multi-file XML Reader -->
+    <bean id="documentMultiResourceReader" class="com.spi.wdr.jobs.etl.EtlMultiResourceItemReader" scope="step">
+        <property name="resources" value="${meter.read.import.input}.xml"/>
+        <property name="delegate" ref="customStaxEventItemReader" />
+    </bean>
+
+    <!-- WdrDocument STAX Reader -->
+    <bean id="documentItemReader" class="org.springframework.batch.item.xml.StaxEventItemReader" scope="step">
+        <property name="fragmentRootElementName" value="WdrDocument" />
+        <property name="saveState" value="false" />
+        <property name="unmarshaller" ref="documentMarshaller" />
+    </bean>
+    
+    <!-- Custom StaxEventItem Reader -->    
+    <bean id="customStaxEventItemReader" class="com.spi.wdr.jobs.etl.CustomStaxEventItemReader" scope="step">
+        <property name="fragmentRootElementName" value="WdrDocument" />
+        <property name="saveState" value="false" />
+        <property name="unmarshaller" ref="documentMarshaller" />
+    </bean>
+    
+    <!-- WdrDocument Marshaller -->
+    <bean id="documentMarshaller" class="org.springframework.oxm.xstream.XStreamMarshaller">
+        <property name="aliases">
+            <util:map id="documentAliases">
+                <entry key="WdrDocument" value="com.spi.wdr.domain.WdrDocument" />
+            </util:map>
+        </property>
+        <property name="converters">
+            <list>              
+                <ref bean="documentConverter" />  
+                <ref bean="premiseConverter" />
+                <ref bean="accountConverter" />
+                <ref bean="meterConverter" />
+                <ref bean="meterToPremiseConverter" />
+                <ref bean="meterToPremiseAssociationConverter" />
+                <ref bean="premiseToAccountConverter" />
+                <ref bean="premiseToAccountAssociationConverter" />
+                <ref bean="meterGroupConverter" />
+                <ref bean="addUpdateMeterGroupConverter" />
+                <ref bean="meterToMeterGroupConverter" />
+                <ref bean="addMeterToMeterGroupConverter" />
+                <ref bean="readingConverter" />
+                <ref bean="collectorDataConverter" />
+                <ref bean="recalcConsumptionConverter"/>                
+            </list>
+        </property>
+    </bean>
+    
+    <!-- WdrDocument Converter -->
+    <bean id="documentConverter" class="com.spi.wdr.jobs.etl.WdrDocumentConverter" init-method="init" scope="step">
+        <property name="stepExecution" value="#{stepExecution}"/>
+        <property name="resources" value="${meter.read.import.input}.xml"/>
+    </bean>
+
+    <!--**************************************************************************************************************-->
+    <!-- Readings Converter -->
+    <!--**************************************************************************************************************-->
+    <bean id="readingXmlMultiResourceReader" class="com.spi.wdr.jobs.etl.EtlMultiResourceItemReader" scope="step">
+        <property name="resources" value="${meter.read.import.input}.xml"/>
+        <property name="delegate" ref="readingsItemReader" />
+    </bean>
+
+    <!-- Reading STAX Reader -->
+    <bean id="readingsItemReader" class="org.springframework.batch.item.xml.StaxEventItemReader" scope="step">
+        <property name="fragmentRootElementName" value="Reading" />
+        <property name="saveState" value="false" />
+        <property name="unmarshaller" ref="readingMarshaller" />
+    </bean>
+
+    <!-- Reading Csv Data Reader -->
+    <bean id="readingCsvMultiResourceReader" class="com.spi.wdr.jobs.etl.st.CsvReadingResourceItemReader" scope="step">
+        <property name="resources" value="${meter.read.import.input}.csv"/>
+        <property name="delegate" ref="readingCsvDataReader"/>
+    </bean>
+
+    <bean id="readingCsvDataReader" class="org.springframework.batch.item.file.FlatFileItemReader">
+        <property name="lineMapper" ref="readingDataLineMapper"/>
+        <property name="linesToSkip" value="${meter.read.import.file.lines.skip}"/>
+    </bean>
+
+    <bean id="readingDataLineMapper" class="org.springframework.batch.item.file.mapping.DefaultLineMapper">
+        <property name="lineTokenizer">
+            <bean class="org.springframework.batch.item.file.transform.DelimitedLineTokenizer"/>
+        </property>
+        <property name="fieldSetMapper" ref="readingDataFieldSetMapper"/>
+    </bean>
+
+    <bean id="readingDataFieldSetMapper" class="com.spi.wdr.client.toronto.jobs.csvbatch.FANFieldSetMapper" scope="step">
+        <property name="mtuPortDelimiter" ref="mtuPortDelimiter"/>
+        <property name="webPresentmentTimeZoneString" value="${web.application.display.timezone}" />
+        <property name="stepExecution" value="#{stepExecution}"/>
+    </bean>
+
+    <!-- Reading Marshaller -->
+    <bean id="readingMarshaller" class="org.springframework.oxm.xstream.XStreamMarshaller">
+        <property name="aliases">
+            <util:map id="readingAliases">
+                <entry key="Reading" value="com.spi.wdr.domain.Reading" />
+            </util:map>
+        </property>
+        <property name="converters">
+            <list>              
+                <ref bean="readingConverter" />
+            </list>
+        </property>
+    </bean>
+    
+    <!-- MeterReading Converter -->
+    <bean id="readingConverter" class="com.spi.wdr.jobs.etl.ReadingConverter" scope="step">
+        <property name="stepExecution" value="#{stepExecution}"/>
+        <property name="lookupMap">
+            <util:map id="readingLookUpMap">
+                <entry key="RevFlowState" value-ref="revFlowStateMap" />
+                <entry key="LeakState" value-ref="leakStateMap" />
+                <entry key="Status" value-ref="stateMap" />
+            </util:map>
+        </property>
+    </bean>
+    
+    <!--**************************************************************************************************************-->
+    <!-- Collector Converter -->
+    <!--**************************************************************************************************************-->
+    
+    <bean id="collectorMultiResourceReader" class="com.spi.wdr.jobs.etl.EtlMultiResourceItemReader" scope="step">
+        <property name="resources" value="${meter.read.import.input}.xml"/>
+        <property name="delegate" ref="collectorItemReader" />
+    </bean> 
+
+    <!-- Collector STAX Reader -->
+    <bean id="collectorItemReader" class="org.springframework.batch.item.xml.StaxEventItemReader" scope="step">
+        <property name="fragmentRootElementName" value="CollectorID" />
+        <property name="saveState" value="false" />
+        <property name="unmarshaller" ref="collectorMarshaller" />
+    </bean>
+    
+    <!-- Collector Marshaller -->
+    <bean id="collectorMarshaller" class="org.springframework.oxm.xstream.XStreamMarshaller">
+        <property name="aliases">
+            <util:map id="collectorAliases">
+                <entry key="CollectorID" value="com.spi.wdr.domain.StCollectorRssi" />
+            </util:map>
+        </property>
+        <property name="converters">
+            <list>              
+                <ref bean="collectorDataConverter" />
+            </list>
+        </property>
+    </bean>
+    
+    <!-- Collector Converter -->
+    <bean id="collectorDataConverter" class="com.spi.wdr.jobs.etl.CollectorDataConverter" scope="step">
+        <property name="stepExecution" value="#{stepExecution}"/>
+    </bean>
+    
+    <!--**************************************************************************************************************-->
+    <!-- CIS Converters -->
+    <!--**************************************************************************************************************-->
+    
+    <!-- Premise Converter -->
+    <bean id="premiseConverter" class="com.spi.wdr.jobs.etl.PremiseConverter" />
+    
+    <!-- Account Converter -->
+    <bean id="accountConverter" class="com.spi.wdr.jobs.etl.AccountConverter" scope="step">
+        <property name="lookupMap">
+            <util:map id="accountLookUpMap">
+                <entry key="Status" value-ref="statusMap" />
+            </util:map>
+        </property>
+        <property name="stepExecution" value="#{stepExecution}"/>
+    </bean>
+    
+    <!-- Meter Converter -->
+    <bean id="meterConverter" class="com.spi.wdr.jobs.etl.MeterConverter" scope="step">
+        <property name="lookupMap">
+            <util:map id="meterLookUpMap">
+                <entry key="Status" value-ref="statusMap" />
+            </util:map>
+        </property>
+        <property name="stepExecution" value="#{stepExecution}"/>
+    </bean>
+    
+    <!-- Meter Group Converter -->
+    <bean id="meterGroupConverter" class="com.spi.wdr.jobs.etl.MeterGroupConverter">
+        <property name="lookupMap">
+            <util:map id="addMeterGroupLookUpMap">
+                <entry key="VisibleToCustomer" value-ref="tOrFMap" />
+            </util:map>
+        </property>
+    </bean>
+    <bean id="addUpdateMeterGroupConverter" class="com.spi.wdr.jobs.etl.AddUpdateMeterGroupConverter" />
+    
+    <!-- Meter to Meter Group Converter -->
+    <bean id="meterToMeterGroupConverter" class="com.spi.wdr.jobs.etl.MeterToMeterGroupConverter">
+        <property name="lookupMap">
+            <util:map id="meterToMeterGroupLookUpMap">
+                <entry key="type" value-ref="meterGroupTypeMap" />
+            </util:map>
+        </property>
+    </bean>
+    <bean id="addMeterToMeterGroupConverter" class="com.spi.wdr.jobs.etl.AddMeterToMeterGroupConverter" />
+    
+    <!-- MeterToPremise Converter -->
+    <bean id="meterToPremiseConverter" class="com.spi.wdr.jobs.etl.MeterToPremiseConverter" />
+    <bean id="meterToPremiseAssociationConverter" class="com.spi.wdr.jobs.etl.MeterToPremiseAssociationConverter" />
+    
+    <!-- PremiseToAccount Converter -->
+    <bean id="premiseToAccountConverter" class="com.spi.wdr.jobs.etl.PremiseToAccountConverter" />
+    <bean id="premiseToAccountAssociationConverter" class="com.spi.wdr.jobs.etl.PremiseToAccountAssociationConverter" />
+    
+    <!-- RecalcConsumption Converter -->
+    <bean id="recalcConsumptionConverter" class="com.spi.wdr.jobs.etl.st.converter.RecalcConsumptionXmlConverter" scope="step">
+        <property name="stepExecution" value="#{stepExecution}"/>
+    </bean>
+
+    <!-- WdrDocument writer -->
+    <bean id="documentItemWriter" class="com.spi.wdr.jobs.etl.WdrDocumentItemWriter">
+        <property name="writers">
+            <list>
+                <ref bean="stRecalcConsumptionWriter"/>
+            </list>
+        </property>
+    </bean>
+    
+    <!-- Reading writer -->
+    <bean id="defaultReadingManager" class="com.spi.wdr.service.wp.DefaultReadingManager">
+        <constructor-arg index="0" type="java.lang.String" value="${meter.read.default.leakState}"/>
+        <constructor-arg index="1" type="java.lang.String" value="${meter.read.default.ownerCollector}"/>
+        <constructor-arg index="2" type="java.lang.String" value="${meter.read.default.reverseFlowState}"/>
+        <constructor-arg index="3" type="java.lang.String" value="${meter.read.default.tiltRemoval}"/>
+        <constructor-arg index="4" type="java.lang.String" value="${meter.read.default.magnetic}"/>
+        <constructor-arg index="5" type="java.lang.String" value="${meter.read.default.dayPrograming}"/>
+        <constructor-arg index="6" type="java.lang.String" value="${meter.read.default.status}"/>
+    </bean>
+
+    <bean id="stPreReadingsItemWriter" class="com.spi.wdr.service.st.StPreReadingItemWriter">
+        <property name="readingMgr" ref="defaultReadingManager"/>
+    </bean>
+
+    <!-- collector data writer -->
+    <bean id="collectorDataItemWriter" class="com.spi.wdr.repository.dw.CollectorDataItemWriter">
+        <property name="stCollectorRssiDao" ref="stCollectorRssiDao" />
+    </bean>
+    
+    <!-- Premise writer -->
+    <bean id="stPremiseItemWriter" class="com.spi.wdr.jobs.etl.StPremiseItemWriter">
+        <property name="premiseDao" ref="stPremiseDao" />
+        <property name="stDeleteTxnDao" ref="stDeleteTxnDao" />
+    </bean>
+    
+    <!-- Account writer -->
+    <bean id="stAccountItemWriter" class="com.spi.wdr.repository.dw.StAccountWriter">
+        <property name="accountDao" ref="stAccountDao" />
+        <property name="stDeleteTxnDao" ref="stDeleteTxnDao" />
+        <property name="linkIdPrefix" value="${meter.read.link.id.prefix}"/>
+    </bean>
+    
+    <!-- Meter writer -->
+    <bean id="stMeterItemWriter" class="com.spi.wdr.jobs.etl.StMeterItemWriter">
+        <property name="stMeterDao" ref="stMeterDao" />
+        <property name="stDeleteTxnDao" ref="stDeleteTxnDao" />
+        <property name="stMultiMeterDao" ref="stMultiMeterDao" />
+    </bean>
+    
+    <!-- MeterGroup writer -->
+    <bean id="stMeterGroupItemWriter" class="com.spi.wdr.repository.dw.StMeterGroupWriter">
+        <property name="meterGroupDao" ref="stMeterGroupDao" />
+        <property name="stDeleteTxnDao" ref="stDeleteTxnDao" />
+    </bean>
+    
+    <!-- MeterToMeterGroup writer -->
+    <bean id="stMeterToMeterGroupItemWriter" class="com.spi.wdr.repository.dw.StMeterToMeterGroupWriter">
+        <property name="meterToMeterGroupDao" ref="stMeterToMeterGroupDao" />
+        <property name="stDeleteTxnDao" ref="stDeleteTxnDao" />
+    </bean>
+     
+    <!-- MeterToPremise writer -->
+    <bean id="stMeterToPremiseItemWriter" class="com.spi.wdr.jobs.etl.StMeterToPremiseItemWriter">
+        <property name="stMeterToPremiseDao" ref="stMeterToPremiseDao" />
+    </bean>
+    
+    <!-- PremiseToAccount writer -->
+    <bean id="stPremiseToAccountItemWriter" class="com.spi.wdr.repository.dw.StPremiseToAccountWriter">
+        <property name="premiseToAccountDao" ref="stPremiseToAccountDao" />
+    </bean>
+    
+    <!--**************************************************************************************************************-->
+    <!-- Converter Maps -->
+    <!--*****************************************************************-->
+    <util:map id="revFlowStateMap">
+        <entry key="0" value="none" />
+        <entry key="1" value="minor" />
+        <entry key="2" value="major" />
+    </util:map>
+
+    <util:map id="leakStateMap">
+        <entry key="0" value="none" />
+        <entry key="1" value="intermittent" />
+        <entry key="2" value="continuous" />
+    </util:map>
+
+    <util:map id="alarmTypeDescMap">
+        <entry key="continuous" value="Leak - Continuous" />
+        <entry key="intermittent" value="Leak - Intermittent" />
+        <entry key="major" value="Reverse Flow - Major" />
+        <entry key="minor" value="Reverse Flow - Minor" />
+    </util:map>
+
+    <util:map id="stateMap">
+        <entry key="0" value="profile off, swipe off" />
+        <entry key="1" value="profile off, swipe on" />
+        <entry key="2" value="profile on, swipe off" />
+        <entry key="3" value="profile on, swipe on" />
+    </util:map>
+
+    <util:map id="statusMap">
+        <entry key="A" value="active" />
+        <entry key="I" value="inactive" />
+    </util:map>
+    
+    <util:map id="tOrFMap">
+        <entry key="T" value="true" />
+        <entry key="F" value="false" />
+    </util:map>
+    
+    <util:map id="meterGroupTypeMap">
+        <entry key="C" value="consumption" />
+        <entry key="I" value="input" />
+        <entry key="O" value="output" />
+        <entry key="N" value="no consumption" />
+    </util:map>
+    
+    <!--*****************************************************************-->
+    <!-- Comparators: WDR-NEP-1345 -->
+    <bean id="alphabeticalFileComparator" class="com.spi.util.comparator.AlphabeticalFileComparator" />
+    <bean id="lastModifiedFileComparator" class="com.spi.util.comparator.LastModifiedFileComparator" />
+
+    <!--*****************************************************************-->
+    <bean id="processingMeterReadingFileMover" class="com.spi.wdr.jobs.csvbatch.XMLValidatingFileMoverTasklet" scope="step">
+        <property name="fromDir" value="${meter.read.import.unprocessed}" />
+        <property name="toDir" value="${meter.read.import.processing}" />
+        <property name="errorDir" value="${meter.read.import.error}" />
+        <property name="xmlValidator" ref="meterReadingXmlValidator" />
+        <property name="stepName" value="processingMeterReadingFileMoverTask" />
+        <property name="stepExecution" value="#{stepExecution}"/>
+        <property name="comparator" ref="${meter.read.import.comparator.bean}"/>
+    </bean>
+    
+    <bean id="repeatProcessingMeterReadingFileMover" class="com.spi.wdr.jobs.csvbatch.RepeatJobTasklet">
+        <property name="tag" value="processingMeterReadingFileMoverTask" />    
+    </bean>
+
+    <bean id="meterReadingXmlValidator" class="org.springframework.xml.validation.XmlValidatorFactory" factory-method="createValidator">
+        <constructor-arg value="${xml.import.schema}" />
+        <constructor-arg>
+            <util:constant static-field="org.springframework.xml.validation.XmlValidatorFactory.SCHEMA_W3C_XML" />
+        </constructor-arg>
+    </bean>
+
+    <bean id="processedMeterReadingFileMover" class="com.spi.wdr.jobs.csvbatch.FileMoverTasklet" scope="step">
+        <property name="fromDir" value="${meter.read.import.processing}" />
+        <property name="toDir" value="${meter.read.import.processed}" />
+        <property name="stepName" value="processedMeterReadingFileMoverTask" />
+        <property name="stepExecution" value="#{stepExecution}"/>
+    </bean>
+    
+    <bean id="repeatProcessedMeterReadingFileMover" class="com.spi.wdr.jobs.csvbatch.RepeatJobTasklet">
+        <property name="tag" value="processedMeterReadingFileMoverTask" />    
+    </bean>
+
+    <bean id="deleteStagingPremisesTask" class="com.spi.wdr.jobs.etl.DeleteStagingPremisesTask" />
+    <bean id="deleteStagingAccountsTask" class="com.spi.wdr.jobs.etl.DeleteStagingAccountsTask" />
+    <bean id="deleteStagingMetersTask" class="com.spi.wdr.jobs.etl.DeleteStagingMetersTask" />
+    <bean id="deleteStagingMultiMetersTask" class="com.spi.wdr.jobs.etl.DeleteStagingMultiMeterTask" />
+    <bean id="deleteStagingMeterToPremiseTask" class="com.spi.wdr.jobs.etl.DeleteStagingMeterToPremiseTask" />
+    <bean id="deleteStagingPremiseToAccountsTask" class="com.spi.wdr.jobs.etl.DeleteStagingPremiseToAccountsTask" />
+    <bean id="deleteStagingMeterGroupsTask" class="com.spi.wdr.jobs.etl.DeleteStagingMeterGroupsTask" />
+    <bean id="deleteStagingMeterToMeterGroupsTask" class="com.spi.wdr.jobs.etl.DeleteStagingMeterToMeterGroupsTask" />
+    <!-- Staging delete tables deletion tasks -->
+    <bean id="deleteStagingDeleteAccountsTask" class="com.spi.wdr.jobs.etl.DeleteStagingDeleteAccountsTask" />
+    <bean id="deleteStagingDeleteMetersTask" class="com.spi.wdr.jobs.etl.DeleteStagingDeleteMetersTask" />
+    <bean id="deleteStagingDeleteMeterGroupsTask" class="com.spi.wdr.jobs.etl.DeleteStagingDeleteMeterGroupsTask" />
+    <bean id="deleteStagingDeleteMeterFromMeterGroupsTask" class="com.spi.wdr.jobs.etl.DeleteStagingDeleteMeterFromMeterGroupsTask" />
+    <bean id="deleteStagingDeletePremisesTask" class="com.spi.wdr.jobs.etl.DeleteStagingDeletePremiseTask" />
+    <bean id="deleteStagingAlarmsTask" class="com.spi.wdr.jobs.etl.DeleteStagingAlarmsTask" />
+    <bean id="deleteStagingReadingsWhenInvalidAndLoadedToDWTasklet" class="com.spi.wdr.jobs.etl.st.DeleteInvalidLoadedToDWStagingReadingsTask"/>
+    <bean id="deleteStagingReadingsWriter" class="com.spi.wdr.jobs.etl.dw.DeleteStagingReadingsWriter">
+        <property name="weeks" value="${meter.read.readings.weeks}" />
+        <property name="enabled" value="${meter.read.delete.staging.reading.enabled}" />
+    </bean>
+
+    <bean id="preReadingsToStDwReadingsTask" class="com.spi.wdr.jobs.etl.dw.StPreReadingsToStDwReadingsTask">
+        <property name="numThreads" value="${etl.partition.threads}" />
+        <property name="batchSize" value="${meter.read.fetch.size.massive}" />
+        <property name="timeout" value="${meter.read.job.timeout}" />
+        <property name="enabled" value="${meterReadingImportJob.enabled}" />
+    </bean>
+
+    <bean id="updateMeterReadingIdTask" class="com.spi.wdr.jobs.etl.dw.UpdateMeterReadingIdTask">
+        <property name="enabled" value="${meterReadingImportJob.enabled}" />
+    </bean>
+
+
+    <bean id="stagingToDwReadingsTask" class="com.spi.wdr.jobs.etl.dw.StReadingsToDwReadingsTask">
+        <property name="enabled" value="${meterReadingImportJob.enabled}" />
+    </bean>
+
+    <bean id="deleteStagingReadingsTask" class="com.spi.wdr.jobs.etl.dw.DeleteStagingReadingsTask">
+        <property name="weeks" value="${meter.read.readings.weeks}" />
+        <property name="enabled" value="${meter.read.delete.staging.reading.enabled}" />
+    </bean>
+    
+    <bean id="checkAccountStatusTask" class="com.spi.wdr.jobs.csvbatch.CheckAccountStatusTask">
+        <property name="inactiveDays" value="${account.inactive.days}" />
+    </bean>
+
+    <bean id="stagingReadingsItemReader" class="com.spi.wdr.jobs.etl.StagingItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+		        <property name="sql" value="${meterReadingImportJob.stagingReadingsItemReader.sql}" />
+		        <property name="rowMapper">
+		            <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+		                <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.Reading"/>
+		            </bean>
+		        </property>
+            </bean>
+        </property>
+    </bean>
+
+    <util:map id="alertUpdateDaoMap" map-class="java.util.HashMap">
+        <entry key="AddUpdatePremise">
+            <ref bean="stPremiseDao"/>
+        </entry>
+        <entry key="AddUpdateAccount">
+            <ref bean="stAccountDao"/>
+        </entry>
+        <entry key="AddUpdateMeter">
+            <ref bean="stMeterDao"/>
+        </entry>
+        <entry key="PremiseToAccount">
+            <ref bean="stPremiseToAccountDao"/>
+        </entry>
+        <entry key="AddUpdateMeterGroup">
+            <ref bean="stMeterGroupDao"/>
+        </entry>
+        <entry key="AddMeterToMeterGroup">
+            <ref bean="stMeterToMeterGroupDao"/>
+        </entry>
+        <entry key="MeterToPremise">
+            <ref bean="stMeterToPremiseDao"/>
+        </entry>
+        <entry key="MeterReading">
+            <ref bean="readingDao"/>
+        </entry>
+        <entry key="Weather">
+            <ref bean="weatherReadingDao"/>
+        </entry>
+        <entry key="DeleteAccount">
+            <ref bean="stDeleteTxnDao"/>
+        </entry>
+        <entry key="DeleteMeterGroup">
+            <ref bean="stDeleteTxnDao"/>
+        </entry>
+        <entry key="DeleteMeterFromMeterGroup">
+            <ref bean="stDeleteTxnDao"/>
+        </entry>
+        <entry key="DeletePremise">
+            <ref bean="stDeleteTxnDao"/>
+        </entry>
+        <entry key="DeleteMeter">
+            <ref bean="stDeleteTxnDao"/>
+        </entry>
+    </util:map>
+
+    <!--**************************************************************************************************************-->
+    <!-- Partitioners for multithreaded tasks -->
+    <!--**************************************************************************************************************-->
+
+    <bean id="consumptionItemUpdaterPartitioner" class="com.spi.wdr.jobs.etl.SelectiveColumnRangePartitioner">
+        <property name="datasource" ref="dwDataSource" />
+        <property name="partitionQuery" value="${meterReadingImportJob.consumptionItemUpdater.partitionSql}" />
+    </bean>
+    
+    <bean id="consumptionItemInserterPartitioner" class="com.spi.wdr.jobs.etl.SelectiveColumnRangePartitioner">
+        <property name="datasource" ref="dwDataSource" />
+        <property name="partitionQuery" value="${meterReadingImportJob.consumptionItemInserter.partitionSql}" />
+    </bean>
+
+    <bean id="stReadingPartitioner" class="com.spi.wdr.jobs.etl.ColumnRangePartitioner">
+        <property name="dataSource" ref="dwDataSource" />
+        <property name="table" value="st_readings" />
+        <property name="column" value="meter_id" />
+    </bean>
+            
+    <!--**************************************************************************************************************-->
+    <!-- Consumption Item Updater and Insertion Job steps -->
+    <!--**************************************************************************************************************-->
+    <step id="stReadingToUpdateWpStep" xmlns="http://www.springframework.org/schema/batch">
+        <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" transaction-manager="dwTxnManager" allow-start-if-complete="true" >
+            <chunk reader="wpStagingItemReaderForUpdate" writer="wpConsItemUpdate" commit-interval="${meter.read.job.commit.interval.large}" />
+            <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW" />
+        </tasklet>
+    </step>
+    <step id="stagingReadingToWpStep" xmlns="http://www.springframework.org/schema/batch">
+        <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" transaction-manager="dwTxnManager" allow-start-if-complete="true" >
+            <chunk reader="wpStagingItemReader" writer="wpConsItemWriter" commit-interval="${meter.read.job.commit.interval.large}" />
+            <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+        </tasklet>
+    </step>
+
+    <!--**************************************************************************************************************-->
+    <!-- ConsumptionCalc and Resynthesize Job Steps -->
+    <!--**************************************************************************************************************-->
+    <step id="consumptionCalculating" xmlns="http://www.springframework.org/schema/batch">
+        <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" transaction-manager="dwTxnManager" allow-start-if-complete="true">
+            <chunk reader="stagingValueReaderForCalc" writer="consumptionWriter" commit-interval="${meter.read.job.commit.interval.large}" skip-limit="100000">
+                <skippable-exception-classes>
+                    <include class="java.lang.Exception" />
+                </skippable-exception-classes>
+            </chunk>
+            <listeners>
+                <listener ref="etlPartitionFailureSkipListener" />
+            </listeners>
+            <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>                
+        </tasklet>
+    </step>
+
+    <step id="reSynthesize" xmlns="http://www.springframework.org/schema/batch" parent="consumptionCalculating">
+        <tasklet>
+            <chunk reader="stagingValueReaderForSynthesize" writer="reSynthesizeWriter" />
+        </tasklet>
+    </step>
+    
+    <bean id="wpMeterPremiseLookupSyncHelper" class="com.spi.wdr.jobs.etl.wp.WpMeterPremiseSyncHelper" />
+    <bean id="wpPremiseAcntLookupSyncHelper" class="com.spi.wdr.jobs.etl.wp.WpPremiseAcntSyncHelper" />
+        
+    <bean id="wpMeterPremiseLookupWriter" class="com.spi.wdr.jobs.etl.wp.GenericWpLookupWriter">
+        <description>This writes all the dirty st_meter_premise_lookup rows to the wp_meter_premise</description>    
+        <property name="helper" ref="wpMeterPremiseLookupSyncHelper" />
+    </bean>
+    
+    <bean id="wpPremiseAcntLookupWriter" class="com.spi.wdr.jobs.etl.wp.GenericWpLookupWriter">
+        <description>This writes all the dirty st_premise_acnt_lookup rows to the wp_premise_acnt table</description>        
+        <property name="helper" ref="wpPremiseAcntLookupSyncHelper" />
+    </bean>
+        
+    <bean id="stMeterPremiseLookupSyncReader" parent="stagingItemReader" scope="step">
+        <description>This retrieves all the st_meter_premise_look_up rows that need to be loaded to the WP</description>
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stMeterPremiseLookupReader}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StMeterToPremiseLookup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+        
+    <bean id="stPremiseAcntLookupSyncReader" parent="stagingItemReader" scope="step">
+        <description>This retrieves all the st_premise_acnt_look_up rows that need to be loaded to the WP</description>    
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stPremiseAcntLookupReader}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.StPremiseAcntLookup" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <!--**************************************************************************************-->
+    <!-- Pre Reading Processing Beans -->
+    <!--**************************************************************************************-->
+    
+    <!--**************************************************************************************-->    
+    <!-- Beans for processing Pre Readings that is equal/after max reading date -->
+    <!--**************************************************************************************-->    
+    <bean id="stPreReadingPreProcessorWriterAfterMxRdDt" class="org.springframework.batch.item.adapter.ItemWriterAdapter" scope="step">
+    	<description>Delegating writer for the preprocessReadings step</description>
+    	<property name="targetObject" ref="stPreReadingManager" />
+    	<property name="targetMethod" value="persist" />
+    </bean>
+    
+    <bean id="readingPreprocessorReaderAfterMxRdDt" class="com.spi.wdr.jobs.etl.ThreadSafeCursorItemReader" scope="step">
+        <constructor-arg index="0">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.readingPreprocessItemReaderAfterMxRdDt.sql}" />
+                <property name="rowMapper">
+                    <bean class="com.spi.wdr.repository.jdbc.BeanPropertyRowMapper">
+                        <constructor-arg index="0" type="java.lang.Class" value="com.spi.wdr.domain.st.StPreReading" />
+                    </bean>
+                </property>
+                <property name="fetchSize" value="${meter.read.fetch.size.massive}" />
+                <property name="dataSource" ref="dwDataSource" />
+            </bean>
+        </constructor-arg>
+    </bean>
+    
+    <util:list id="readingPreProcessorListAfterMxRdDt" value-type="com.spi.wdr.service.st.Processor" scope="step">
+    	<bean class="com.spi.wdr.service.st.NonNumericProcessor" />
+    	<bean class="com.spi.wdr.service.st.DuplicateReadingProcessor" />
+    	<bean class="com.spi.wdr.service.st.WakeUpReadProcessor" />
+        <ref bean="queuedErraticReadProcessor" />
+    </util:list>
+    
+    <bean id="stPreReadingPreProcessingReaderAfterMxRdDt" class="com.spi.wdr.jobs.etl.StPreReadingPreProcessingReader" scope="step">
+        <constructor-arg index="0" ref="readingPreProcessorListAfterMxRdDt" />
+        <constructor-arg index="1" ref="readingPreprocessorReaderAfterMxRdDt" />
+    </bean>
+    
+    <!--**************************************************************************************-->   
+    <!-- Beans for processing Pre Readings that is before max reading date -->
+    <!--**************************************************************************************-->
+    
+    <bean id="stPreReadingPreProcessorWriterBeforeMxRdDt" class="org.springframework.batch.item.adapter.ItemWriterAdapter">
+    	<description>Delegating writer for the preprocessReadings step</description>
+    	<property name="targetObject" ref="stPreReadingManager" />
+    	<property name="targetMethod" value="persist" />
+    </bean>
+    
+    <bean id="readingPreprocessorReaderBeforeMxRdDt" class="com.spi.wdr.jobs.etl.ThreadSafeCursorItemReader">
+        <constructor-arg index="0">
+            <bean class="org.springframework.batch.item.database.JdbcCursorItemReader">
+                <property name="sql" value="${meterReadingImportJob.readingPreprocessItemReaderBeforeMxRdDt.sql}" />
+                <property name="rowMapper">
+                    <bean class="com.spi.wdr.repository.jdbc.BeanPropertyRowMapper">
+                        <constructor-arg index="0" type="java.lang.Class" value="com.spi.wdr.domain.st.StPreReading" />
+                    </bean>
+                </property>
+                <property name="fetchSize" value="${meter.read.fetch.size}" />
+                <property name="dataSource" ref="dwDataSource" />
+            </bean>
+        </constructor-arg>
+    </bean>
+    
+    <util:list id="readingPreProcessorListBeforeMxRdDt" value-type="com.spi.wdr.service.st.Processor">
+    	<bean class="com.spi.wdr.service.st.NonNumericProcessor" />
+    	<bean class="com.spi.wdr.service.st.DuplicateReadingProcessor" />
+    	<bean class="com.spi.wdr.service.st.WakeUpReadProcessor" />
+    </util:list>
+    
+    <bean id="stPreReadingPreProcessingReaderBeforeMxRdDt" class="com.spi.wdr.jobs.etl.StPreReadingPreProcessingReader">
+        <constructor-arg index="0" ref="readingPreProcessorListBeforeMxRdDt" />
+        <constructor-arg index="1" ref="readingPreprocessorReaderBeforeMxRdDt" />
+    </bean>
+    <!--**************************************************************************************-->    
+    
+    <bean id="updatePreReadingKeysItemWriter" class="com.spi.wdr.jobs.etl.UpdateReadingKeysItemWriter">
+        <property name="readingDao" ref="stPreReadingDao" />
+    </bean>
+    
+    <bean id="preReadingToReadingItemReader" parent="stagingItemReader" scope="step">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.preReadingItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.st.StPreReading" />
+                    </bean>
+                </property>
+                <property name="fetchSize" value="${meter.read.fetch.size.massive}" />
+            </bean>
+        </property>
+    </bean>
+    
+    <!--**************************************************************************************-->
+    <!-- Update dimension keys in the staging reading table -->
+    <!--**************************************************************************************-->
+    <bean id="stagingPreReadingsMiuKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingPreReadingsMiuKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingPreReadingsPremiseKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingPreReadingsPremiseKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingPreReadingsAccountKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingPreReadingsAccountKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingPreReadingsReadingTypeKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingPreReadingsReadingTypeKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+    
+    <bean id="stagingPreReadingsReadingFlagKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingPreReadingsReadingFlagKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="stagingPreReadingsOwnerCollectorKeyItemReader" parent="stagingMultiThreadedItemReader">
+        <property name="delegate">
+            <bean parent="abstractJdbcReader">
+                <property name="sql" value="${meterReadingImportJob.stagingPreReadingOwnerCollectorKeyItemReader.sql}" />
+                <property name="rowMapper">
+                    <bean class="org.springframework.jdbc.core.BeanPropertyRowMapper">
+                        <constructor-arg type="java.lang.Class" value="com.spi.wdr.domain.DwDimKey" />
+                    </bean>
+                </property>
+            </bean>   
+        </property>
+    </bean>
+
+    <bean id="rollOverProcessor" class="com.spi.wdr.jobs.etl.st.RolloverProcessor">
+        <!--  determine which type of rollover detector you want configured -->
+        <constructor-arg index="0" ref="${meter.read.import.rollover.detector.bean}" />
+    </bean>
+    
+    <!-- Preprocessing partitioner -->
+    <bean id="preprocessReadingPartitioner" class="com.spi.wdr.jobs.etl.SelectiveColumnRangePartitioner">
+        <description>Preprocessing reading partitioner</description>
+        <property name="datasource" ref="dwDataSource" />
+        <property name="partitionQuery" value="${meterReadingImportJob.preprocessReadingPartition.sql}" />
+    </bean>
+    
+    <step id="preprocessReadingsAfterMxRdDt" xmlns="http://www.springframework.org/schema/batch" >
+        <description>Apply filtering and validation to the reading pre-staging table where the adjusted reading full date is after the st_meter_premise_lookup.max_reading_date</description>
+        <tasklet task-executor="taskExecutor" throttle-limit="${meter.read.job.throttle.limit}" transaction-manager="dwTxnManager" allow-start-if-complete="true" >
+            <chunk reader="stPreReadingPreProcessingReaderAfterMxRdDt" writer="stPreReadingPreProcessorWriterAfterMxRdDt" commit-interval="${meter.read.job.commit.interval.massive}"/>
+            <transaction-attributes isolation="READ_COMMITTED" propagation="REQUIRES_NEW"/>
+        </tasklet>
+    </step>
+
+    <bean id="processedPreReadingsPartitioner" class="com.spi.wdr.jobs.etl.SelectiveColumnRangePartitioner">
+        <property name="datasource" ref="dwDataSource" />
+        <property name="partitionQuery" value="${meterReadingImportJob.processedPreReadingsPartition.sql}" />
+    </bean>
+    
+    <step id="loadPreReadingsToReading" xmlns="http://www.springframework.org/schema/batch" parent="loadStagingTables">
+        <description>Move readings from st_pre_readings to st_readings or dw_readings</description>
+        <tasklet>
+            <chunk reader="preReadingToReadingItemReader" writer="preReadingsToReadingsItemWriter" commit-interval="${meter.read.job.commit.interval.massive}" />
+        </tasklet>
+    </step>
+    
+    <bean id="intervalList" class="java.lang.String">
+        <constructor-arg value="${meter.read.import.valid.interval}" />
+    </bean>
+    
+    <bean id="weeksInProfile" class="java.lang.String">
+        <constructor-arg value="${meter.read.profile.weeks}" />
+    </bean>
+</beans>

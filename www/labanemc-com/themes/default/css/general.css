@@ -1,0 +1,56 @@
+@CHARSET "UTF-8";
+html {background:url('/images/bg_wrapper.jpg');}
+body {font-family:Tahoma,Arial,Helvetica,sans-serif;font-size:85%;}
+h1 {border-top:4px solid #673400;background:url('/images/img_icon.jpg') no-repeat 0% 50%;padding:1em 1em 1em 3.5em;margin-bottom:1em;color:#673400;font-family:Tahoma;font-weight:bold;font-size:108%;}
+h2 {font-family:Tahoma;font-weight:bold;}
+hr {border:none;border-top:.1em solid #c0c0c0;margin:1em 0 1em 0;}
+
+#wrapper {}
+#container {background:#1c1c1c;min-height:500px;padding-bottom:2em;}
+
+#header {padding:1em 1.5em;font-size:85%;}
+#header ul {width:100%;}
+#header li {float:left;}
+#header li.header {margin-top:3em;}
+#header li a {font-family:Arial;color:#e5e3e4;text-decoration:none;display:block;}
+#header li.nav {margin:2.9em 22em 0 5em;}
+#header li.nav li.home {border-right:1px solid #e5e3e4;}
+#header li.nav li.about {border-right:1px solid #e5e3e4;}
+#header li.nav li a, #header li.nav li a:link, #header li.nav li a:hover, 
+#header li.nav li a:active, #header li.nav li a:visited {padding:0 .8em;text-transform:uppercase;}
+
+#content {background:#fff url('/images/bg_content.jpg') top left repeat-x;padding:1.5em 1.5em 0 1.5em;}
+#content #main, #content #showcase {float:left;}
+#content #main {width:420px;}
+#content #showcase {margin-left:2em;margin-top:1em;}
+
+#showcase li{margin-bottom:.2em;margin-right:.5em;}
+#showcase li img {border:1px solid #808080;}
+#showcase div a {border:1px solid #808080;}
+#showcase div a img {border:1em solid #fff;}
+#showcase div.showcase {margin-left:7em;font-size:93%;padding:1.5em 5em;background:url('/images/bg_showcase.jpg') top left repeat-x;text-align:center;}
+
+#content #motto {font-family:Verdana;margin-top:2em;background:url('/images/bg_showcase.jpg') 0 100% repeat-x;}
+#content #motto span {padding:1em;display:block;float:left;text-transform:uppercase;font-size:123.1%;}
+#content #motto .spacer {clear:none;background:#f8f8f8;padding:1em 0;width:.4em;}
+
+#footer {margin-top:.5em;background:url('/images/bg_footer.jpg') 0% 0% repeat-x;color:#ccc;font-size:93%;}
+#footer span {width:49.1%;float:left;padding:1em 0 0 1.5em;display:block;}
+#footer table caption{padding:1em 0 0 1.5em;}
+#footer .spacer {clear:none;background:#1c1c1c;padding:3.5em 0;width:.6em;}
+#footer th {font-weight:bold;padding:.5em 0 .5em 1.7em;font-size:93%;}
+#footer td{padding-left:1.7em;padding-right:1em;}
+#footer td.strong {font-size:93%;padding-right:.5em;}
+#footer a {color:#ccc;}
+
+.services li {float:left;width:50%;}
+.services li a {color:#313131;}
+.motto {font-family:Arial;font-size:131%;font-weight:bold;}
+.showcase {font-family:Arial;font-size:108%;font-weight:bold;}
+.header {font-family:Arial;font-size:100%;}
+.center{
+ width:71.54em; * /* non-IE 930px */
+ width:69.77em; /* IE 930px */
+ margin-left:-37.46em; *
+ margin-left:-36.52em;
+}

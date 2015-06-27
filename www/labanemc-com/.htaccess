@@ -1,0 +1,18 @@
+XBitHack on
+AddType text/html .html
+AddHandler server-parsed .html
+AddType x-mapp-php5 .php
+
+RewriteEngine On
+RewriteBase /
+
+#########################   Main   #########################
+RewriteRule ^([a-zA-Z]+)/?$ /parlance.php?route=$1 [QSA,L]
+RewriteRule ^/?$ /parlance.php?route=home [QSA,L]
+
+RewriteRule ^home/([a-zA-Z]+)/?$ /parlance.php?route=home.$1 [QSA,L]
+RewriteRule ^about/([a-zA-Z0-9]+)/?$ /parlance.php?route=about.$1 [QSA,L]
+RewriteRule ^contact/([a-zA-Z]+)/?$ /parlance.php?route=contact.$1 [QSA,L]
+
+RewriteRule ^redesign/?$ /parlance.php?route=redesign [QSA,L]
+RewriteRule ^redesign/([a-zA-Z]+)/?$ /parlance.php?route=redesign.$1 [QSA,L]

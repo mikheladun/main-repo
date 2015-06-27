@@ -1,0 +1,11 @@
+XBitHack on
+AddType text/html .html
+AddHandler server-parsed .html
+DirectoryIndex parlance.php index.php index.html
+
+RewriteEngine On
+RewriteBase /
+
+#########################   Main   #########################
+RewriteRule ^([a-zA-Z]+)/?$ /parlance.php?pid=$1 [QSA,L]
+RewriteRule ^/?$ /parlance.php?pid=home [QSA,L]

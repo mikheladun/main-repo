@@ -1,0 +1,12 @@
+define user=&&user
+define pwd=system
+define dmp_file=&&dmp_file
+define imp_user=&&user
+define exp_user=&&exp_user
+define exp_schema=&&exp_user
+set verify off;
+
+expdp &&user/&&pwd directory=export_dir logfile=cleanexport.log dumpfile=&&dmp_file.dmp SCHEMAS=&&exp_schema VERSION=10.2
+
+impdp &&user/&&pwd directory=export_dir logfile=cleanimport.log dumpfile=&&dmp_file.dmp CONTENT=ALL SCHEMAS=&&exp_schema REMAP_TABLESPACE=&&exp_user:&&imp_user REMAP_SCHEMA=&&exp_user:&&imp_user transf
+orm=segment_attributes:n

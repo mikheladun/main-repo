@@ -1,0 +1,42 @@
+carousel.swf Movie Report
+--------------------------
+
+Frame #    Frame Bytes    Total Bytes    Scene
+-------    -----------    -----------    ----------------
+      1          30447          30447    Scene 1 (AS 2.0 Classes Export Frame)
+
+Scene                        Shape Bytes    Text Bytes    ActionScript Bytes
+-------------------------    -----------    ----------    ------------------
+Scene 1                                0             0                    34
+
+Symbol                       Shape Bytes    Text Bytes    ActionScript Bytes
+-------------------------    -----------    ----------    ------------------
+Info                                   0            28                     0
+Image_t                                0             0                     0
+Thumb                                  0            28                     0
+Image                                  0             0                     0
+mcThumbBase                            9             0                     0
+Active                                 0             0                     0
+Link                                   0            61                     0
+WatchNow                               0             0                     0
+Carousel                               0             0                    18
+
+Font Name                 Bytes        Characters    
+----------------------    ---------    --------------
+Arial                           380     ANSVdeilosw
+
+ActionScript Bytes    Location
+------------------    --------
+                34    Scene 1:Layer 2:1
+                18    Carousel:Layer 1:1
+              1565    ActionScript 2.0 Classes
+
+Bitmap                     Compressed    Compression
+-----------------------    ----------  --------  -----------
+btn_watch_now.jpg               1110        8400   Imported JPEG=102
+bg_active.gif                    199       11220   Lossless
+bg_carousel.jpg                26771      580320   Imported JPEG=102
+
+
+
+

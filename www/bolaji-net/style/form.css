@@ -1,0 +1,69 @@
+/* CSS Document */
+Form{padding:.5em;margin:0;width:80%;}
+Form.Search{width:100%;}
+Form Input, Form TextArea, Form Select{font-size:100%;}
+Form TextArea{font-size:120%;}
+Form Div.InputRow{border:1px solid #eee;padding:.5em .5em;margin-bottom:1em;clear:both;}
+Form .ButtonRow{padding:0 .5em;}
+Form .SectionHeader{color:#98999B;font-weight:normal;text-transform:none;}
+Form .Label{font-weight:bolder;color:#121212;}
+Form Span.Error{font-weight:bolder;}
+Form Input, Form TextArea, Form Select{margin-bottom:.2em;color:#121212;}
+Form Input.Input, Form TextArea.TextArea, Form Select.Select, 
+Form Input.Invisible, Form TextArea.Invisible, Form Select.Invisible, Form Input.Visible, Form TextArea.Visible, Form Select.Visible, 
+Form Input.Error, Form TextArea.Error, Form Select.Error{
+ border:1px solid #008442;
+ padding:.2em;
+ margin-top:.2em;
+ background:#FFFFF5;
+ color:#121212;
+}
+Form Input.Focus, Form TextArea.Focus, Form Select.Focus{
+ margin-top:.2em;
+ padding:.2em;
+ border:1px solid #98999B;
+ background:#FFFFF5;
+}
+Form Input.Error, Form TextArea.Error, Form Select.Error{padding:.2em;border:1px solid #B42E33;}
+Input.Checkbox{margin-left:0;padding-left:0;}
+Form Select.Select, Form Select.Error{padding-bottom:.1em}
+.ButtonRow .ButtonRowRight{padding:0;float:right;}
+.ButtonRow Input.Button{border:0;margin-top:0;margin-right:.5em;}
+.ButtonRow .ButtonRowRight Input.Button{margin:0;margin-left:.5em;}
+.IconButton{
+ border:0;
+ width:13px;
+ height:14px;
+ background:inherit;
+ color:inherit;
+ font-family:verdana;
+ font-size:13px;
+ cursor:pointer;
+ text-decoration:none;
+}
+Form Input.Button, Input.Button{
+ border:0;
+ border-bottom:1px solid #98999B;
+ margin-top:0;
+ padding-top:.2em;
+ padding-bottom:0em;
+ background-image:url('/images/bdr_vertical_bar_r.gif');
+ background-position:top right;
+ background-repeat:no-repeat;
+ background:#FFFFF5;
+ height:25px;
+ color:#98999B;
+ font-size:x-small;
+ font-weight:bolder;
+ text-transform:uppercase;
+ cursor:pointer;
+}
+.ButtonRow Input.Button{
+ border-top:1px solid #F4F5F9;
+ border-left:1px solid #F4F5F9;
+ border-bottom:1px solid #836F37;
+ border-right:1px solid #836F37;
+ background-color:#EBD35C;
+ color:#333;
+}
+Form Input.Invisible, Form TextArea.Invisible, Form Select.Invisible{border:0;background:none;visibility:visible;display:block;}

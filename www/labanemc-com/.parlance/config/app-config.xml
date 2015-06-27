@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="iso-8859-1" ?><app name="Lemacon" path="/projects/lemacon/www">    <pages rel="app-pages.xml" />	<validators>		<validator id="default" class="Validator.Class.DefaultValidator" />	</validators>	<mailers>		<mailer id="default" />	</mailers></app>

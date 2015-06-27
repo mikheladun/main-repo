@@ -1,0 +1,49 @@
+musicplayer.swf Movie Report
+-----------------------------
+
+Frame #    Frame Bytes    Total Bytes    Scene
+-------    -----------    -----------    ----------------
+      1          46927          46927    Scene 1 (AS 2.0 Classes Export Frame)
+
+Scene                        Shape Bytes    Text Bytes    ActionScript Bytes
+-------------------------    -----------    ----------    ------------------
+Scene 1                                0             0                    31
+
+Symbol                       Shape Bytes    Text Bytes    ActionScript Bytes
+-------------------------    -----------    ----------    ------------------
+Info                                   0            20                     0
+Image                                  0             0                     0
+Scrubber                               0             0                     0
+Time                                   0            13                     0
+Pause                                  0             0                     0
+Play                                   0             0                     0
+Volume                                 0             0                     0
+ControlBar                             0             0                     0
+Text                                   0            12                     0
+MusicPlayer                            0             0                    19
+
+Font Name                 Bytes        Characters    
+----------------------    ---------    --------------
+Trebuchet MS  11 pts             10    
+Arial  18 pts                     8    
+Arial  14 pts                     8    
+Arial Bold  14 pts                8    
+
+ActionScript Bytes    Location
+------------------    --------
+                31    Scene 1:Layer 2:1
+                19    MusicPlayer:Layer 1:1
+             15326    ActionScript 2.0 Classes
+
+Bitmap                     Compressed    Compression
+-----------------------    ----------  --------  -----------
+img_vidplayer_play.gif            65         208   Lossless
+img_vidplayer_pause.gif           21         208   Lossless
+img_vidplayer_vol.gif            119         208   Lossless
+img_musicplayer_scrubber.gif        77         240   Lossless
+img_musicplayer_photo.jpg        858       13056   Imported JPEG=102
+bg_musicplayer.jpg             30062      294000   Imported JPEG=102
+
+
+
+

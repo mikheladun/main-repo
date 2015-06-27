@@ -1,0 +1,32 @@
+<html>
+<head>
+<title>Multiple file upload (Mootools version)</title>
+
+	<link rel="stylesheet" type="text/css" media="screen" href="Stickman.MultiUpload.css" />
+
+	<script src="mootools.js"></script>
+	<script src="Stickman.MultiUpload.js"></script>
+	<script type="text/javascript">
+		window.addEvent('domready', function(){
+			// Use defaults: no limit, use default element name suffix, don't remove path from file name
+			new MultiUpload( $( 'main_form' ).defaults );
+			// Max 3 files, use '[{id}]' as element name suffix, remove path from file name, remove extra elemen
+			new MultiUpload( $( 'main_form' ).use_settings, 3, '[{id}]', true, true );
+		});
+	</script>
+</head>
+
+<body>
+	<div>
+	<form id="main_form" method="POST" enctype="multipart/form-data" action="your_upload_handling_script">
+		<!-- Uses defaults -->
+		Defaults:
+		<input type="file" name="defaults"><br clear="all"/><br/>
+		<!-- Uses specific settings -->
+		Max 3 files; use '[id]' suffix; strip path, remove empty element:<input type="file" name="use_settings"><br clear="all"/><br/>
+		<!-- This is just na ordinary file upload -->
+		Standard file input:<br/><input type="file" name="standard"><br clear="all"/>
+	</form>
+	</div>
+</body>
+</html>

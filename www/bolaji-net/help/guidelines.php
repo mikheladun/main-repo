@@ -1,0 +1,18 @@
+<p><big><big class="GrnTxt">Bolaji.net Music Submission Guidelines</big></big></p>
+<p>&nbsp;</p>
+<p>The following requirements are intended to help you understand how we evaluate materials during the submission process. All materials that you submit to Bolaji.net must comply with these requirements.</p>
+<p>&nbsp;</p>
+<p>Please forward all submissions to: <a href="mailto:Bolaji.net@gmail.com">Bolaji.net@gmail.com</a></p>
+<p>&nbsp;</p>
+<p> <strong>* File Format: </strong>Your audio materials must be stereo MP3 files and encoded at 192Kbps and at a sample rate of 44KHz.</p>
+<p> <strong>* File Space Limit: </strong>There is a 50MB limit per artist for all files. This means that you may have one 50MB file or 50 1MB files or anything in between.</p>
+<p> <strong>* Genre: </strong>You must provide the single genre that best fits the nature of your submissions. Under most circumstances, we will approve your initial genre request. However, we reserve the right to recategorize your product.</p>
+<p> <strong>* Artist Names: </strong>You, the artist, must exclusively own all artist names or represent the individual or entity that does (as in the case of a record label). You may not reserve or use artist names that you do not have the rights to. Name squatting, or claiming artist names that you clearly do not own, will not be tolerated. Please research the legality of any name you intend to use.</p>
+<p> <strong>* Artist Images: </strong>When you submit the image, please keep in mind that Bolaji.net can only accept images that are in GIF (.gif) or JPEG (.jpg) format. Also, an image must be an exact square (width=height), at least 75-by-75 pixels, and no larger than 500K. We also do not accept animated GIF files.</p>
+<p> <strong>* Artist/Song Descriptions: </strong>Artist and song descriptions must pertain to the specific artist or song listing you are submitting. Artist and song descriptions should not contain marketing language that promotes nonrelevant entities, and should not include any links to images or to unrelated sites.</p>
+<p> <strong>* Adult Content: </strong>You must flag material that is not suitable for children under the age of 18, and we will place an explicit warning on the page where that material appears.</p>
+<p> You may not submit material that clearly intends to incite hate, or material of an extreme sexual nature, including but not limited to audio recordings of pornography. We reserve the right to remove this type of material.</p>
+<p> <strong>* Copyright and Trademark: </strong>Our goal is that the Bolaji.net Music library only will contain material, including but not limited to, musical compositions, sound recordings, artist names, art, or other written or visual images submitted by those who hold all copyright and trademark rights to that material. If we determine that someone other than the legal copyright or trademark holder (or his or her official agent) has submitted material, we will suspend that material.</p>
+<p> It is your responsibility to determine whether you have the legal right to use materials that you submit to our site. If you do not hold the copyright and/or trademark for the product(s) you are submitting, but you have documented permission from the trademark or copyright holder, please submit written evidence of your permission with your product. We will review your evidence as part of our evaluation process.</p>
+<p> <strong>* Song Samples, Excerpts, and Sound Clips: </strong>We do not accept song samples, excerpts of songs, sound clips, or any kind of partial song file. You must submit your song in its entirety for it to be approved for publication on Download.com Music.</p>
+<p>&nbsp;</p>

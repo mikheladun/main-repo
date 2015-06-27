@@ -1,0 +1,47 @@
+/* CSS Document */
+
+form{
+	padding-bottom:2em;
+}
+form label {
+ clear:both;
+ text-align:left;
+ display:block;
+ padding:.5em 0;
+}
+form .label {
+ font-size:113%;
+}
+form input, form textarea {
+ border:1px solid #919192;
+ width:56%;
+ *width:54.6%;
+ padding:.2em;
+ color:#515152;
+ font-size:113%;
+ clear:both;
+ display:block;
+}
+form input.hidden {
+	border:none;
+}
+form .button input {
+ border:1px solid #ccc;
+ cursor:pointer;
+ background-color:#ddd;
+}
+form .button {
+  clear:both;
+  margin-top:.5em;
+  font-size:113%;
+  width:35%;
+  *width:34.13%;
+}
+
+form .error input, form .error textarea{
+	border:1px solid #c30;
+	border-left:3px solid #c30;
+}
+form .error .label {
+	font-weight:bold;
+}

@@ -1,0 +1,61 @@
+ <div id="player-template" class="sm2player" style="visibility:hidden;display:none;">
+  <!-- player UI (bar) -->
+
+  <div class="ui">
+
+   <div class="left">
+    <a href="#" title="Pause/Play" onclick="soundPlayer.togglePause();return false" class="trigger pauseplay"><span></span></a>
+   </div>
+
+   <div class="mid">
+
+    <div class="progress"></div>
+    <div class="info"><span class="caption text">%{artist} - %{title} [%{album}], (%{year})&nbsp;&nbsp;(%{time})</span></div>
+    <div class="default">jsAMP Technology Preview v0.99a.20071010 (Seriously alpha - use at own risk! :))</div>
+    <div class="seek">Seek to %{time1} of %{time2} (%{percent}%)</div>
+    <div class="divider">&nbsp;-&nbsp;&nbsp;</div>
+    <a href="#" title="" class="slider"></a>
+   </div>
+
+   <div class="right">
+    <div class="divider"></div>
+    <div class="time" title="Time">0:00</div>
+    <a href="#" title="Previous" class="trigger prev" onclick="soundPlayer.oPlaylist.playPreviousItem();return false"><span></span></a>
+    <a href="#" title="Next" class="trigger next" onclick="soundPlayer.oPlaylist.playNextItem();return false"><span></span></a>
+    <a href="#" title="Shuffle" class="trigger s1 shuffle" onclick="soundPlayer.toggleShuffle();return false"><span></span></a>
+    <a href="#" title="Repeat" class="trigger s2 loop" onclick="soundPlayer.toggleRepeat();return false"><span></span></a>
+    <a href="#" title="Mute" class="trigger s3 mute" onclick="soundPlayer.toggleMute();return false"><span></span></a>
+    <a href="#" title="Volume" onmousedown="soundPlayer.volumeDown(event);return false" onclick="return false" class="trigger s4 volume"><span></span></a>
+    <a href="#" title="Playlist" class="trigger dropdown" onclick="soundPlayer.togglePlaylist();return false"><span></span></a>
+   </div>
+
+  </div>
+  
+ </div>
+ 
+ 
+  <div class="sm2playlist-box">
+
+  <!-- playlist / controls -->
+  <div id="playlist-template" class="sm2playlist">
+
+   <div class="hd"><div class="c"></div></div>
+   <div class="bd">
+    <ul>
+     <!-- playlist items created, inserted here
+      <li><a href="/path/to/some.mp3"><span>Artist - Song Name, etc.</span></a></li>
+     -->
+    </ul>
+   </div>
+   <div class="ft"><div class="c"></div></div>
+  </div>
+
+  <!-- close container -->
+  </div>
+  
+  <table class="Playlist" border="0" cellpadding="0" cellspacing="0" width="100%">
+	<thead>
+		<th colspan="3" class="Id"><dl><dt>Music</dt><dt>Artists</dt><dt><?=$Artist->Name?></dt><dt class="End">MUSIC</dt></dl></th>
+	</thead>
+</table>
+

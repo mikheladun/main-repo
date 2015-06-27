@@ -1,0 +1,15 @@
+XBitHack on
+AddType text/html .html
+AddHandler server-parsed .html
+AddType x-mapp-php5 .php
+
+RewriteEngine On
+RewriteBase /
+
+#########################   Main   #########################
+RewriteRule ^([a-zA-Z]+)/?$ /parlance.php?route=$1 [QSA,L]
+RewriteRule ^/?$ /parlance.php?route=home [QSA,L]
+
+RewriteRule ^[^\w\s]+([a-zA-Z]+)/?$ /parlance.php?route=error-404 [QSA,L]
+
+RewriteRule ^home/([a-zA-Z]+)/?$ /parlance.php?route=home.$1 [QSA,L]

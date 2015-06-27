@@ -1,0 +1,85 @@
+/* CSS Document */
+
+form{
+ margin-left:4em;
+ width:400px;
+}
+form label {
+ clear:both;
+ text-align:left;
+ display:block;
+ padding:.5em 0 .1em 0;
+}
+form fieldset {
+ border:1px solid #919192;
+ padding:.5em 1em 1em;
+}
+form fieldset legend {
+ padding:0 .5em;
+ color:#333;
+}
+form .label {
+ font-size:100%;
+}
+form input, form textarea, form select {
+ border:1px solid #919192;
+ width:90%;
+ padding:.1em;
+ color:#515152;
+ clear:both;
+ display:block;
+}
+form textarea {
+ width:90%;
+}
+form select {
+ height:1.5em;
+ padding-top:.09em;
+ width:94%;
+}
+form select.multiple {
+ border:none;
+ height:auto;
+ width:100%;
+}
+form select.multiple option {
+ padding:.25em 1em .25em 0;
+}
+form select.multiple option:active {
+ border:none;
+}
+form input.checkbox, form input.radio {
+ border:none;
+ width:1em;
+ height:1em;
+ float:left;
+ margin-right:.1em;
+ font-size:113%;
+}
+form input.hidden {
+	border:none;
+}
+form .button input {
+ border:1px solid #ccc;
+ cursor:pointer;
+ background-color:#ddd;
+}
+form .button {
+ margin-top:.5em;
+ font-size:113%;
+}
+form div.button {
+ clear:both;
+}
+
+form .button.submit {
+ width:11%;
+}
+
+form .error input, form .error textarea{
+ border:1px solid #c30;
+ border-left:3px solid #c30;
+}
+form .error .label {
+ font-weight:bold;
+}

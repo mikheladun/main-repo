@@ -1,0 +1,53 @@
+/*
+
+ GENERAL RANT AWARENESS NOTICE
+ -----------------------------
+ You may see some complaining about Internet Explorer, PNG and opacity-related hacks.
+ Even the new (at time of writing, 12/2006) IE 7 has issues and other quirks. Too bad.
+
+*/
+audio { width: 570px; display: block; margin: 2em 0; }
+audio:nth-child(2) { width: 570px; }
+audio:nth-child(3) { width: 560px; }
+#MPlayer{
+ padding:0;
+ background:#000 url('/music/player/images/bg_mplayer1.jpg') top left repeat-x;
+ color:#F4F5F9;
+ /*** width:403px;  **/
+}
+#MPlayer .Time{font-weight:bolder;}
+#MPlayer .Info{padding:.2em .5em;font-weight:bolder;font-size:110%;line-height:120%;text-transform:capitalize;clear:both;}
+#MPlayer .Info Span{font-weight:normal;}
+#MPlayer .Cntrl{font-weight:bolder;color:#FFF;float:left;}
+#MPlayer .Cntrl A{padding:0 .5em 0 0;color:#7bbfee;text-decoration:none;}
+#MPlayer .Cntrl A:Hover{color:#fff;}
+#MPlayer .Left,#MPlayer .Right{float:left;}
+#MPlayer .Left{padding-top:.2em;padding-left:.2em;}
+#MPlayer .Right{text-align:right;float:right;}
+#MPlayer .MPlayerCntrl{padding:.3em .5em;background-color:#000;}
+#MPlayer .MPlayerCntrl{background:url('/images/bg_navon.gif') top left repeat-x;background-position:center;color:#000;font-size:90%;font-weight:bolder;}
+
+.MPlayerContent{margin:0;padding:0;clear:both;}
+.MPlayerTabs{margin:0;padding:0;}
+.MPlayerTabsWrapper{width:100%;}
+
+#area,#area2{height:15px;width:50px;background:#212121 url('/music/player/images/img_mplayer_prog_off.jpg') repeat-x;float:left;}
+.area{background:#000 url('/music/player/images/img_mplayer_prog_off.jpg') no-repeat;height:15px;float:left;}
+#area2{width:230px;}
+#knob,#knob2{margin-left:-.1em;height:14px;width:11px;background:#000;background:url('/music/player/images/img_mplayer_seek.jpg') no-repeat;float:left;cursor:pointer}
+#knob{visibility:hidden;display:none;}
+
+#soundmanager-debug {
+ position:absolute;
+ right:1.5em;
+ bottom:1.5em;
+ display:none;
+ font-size:xx-small;
+ height:20em;
+ overflow:auto;
+ background:transparent url('/music/player/images/whiteout.png');
+ padding:1em;
+ color:#000;
+ visibility:hidden;
+ display:none;
+}

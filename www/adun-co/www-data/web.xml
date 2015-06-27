@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<parlance>
+	<parlance:web>
+		<web:host>adun-co</web:host>
+		<web:title>adun.co</web:title>
+		<web:site>http://www.adun.co</web:site>
+		<web:template>index.php</web:template>
+		<web:meta>
+			<meta:description>adun.co</meta:description>
+			<meta:keywords></meta:keywords>
+			<meta:viewport>width=device-width,initial-scale=1.0</meta:viewport>
+			<meta:contenttype>text/html; charset=iso-8859-1</meta:contenttype>
+			<meta:cache>no-cache;-1</meta:cache>
+		</web:meta>
+		<web:ogp>
+			<ogp:type>website</ogp:type>
+			<ogp:site>adun.co</ogp:site>
+			<ogp:image>http://www.adun.co/img/ogp-image.jpg</ogp:image>
+		</web:ogp>
+
+		<web:routes>
+			<web:template />
+			<web:route>
+				<web:route:id>home</web:route:id>
+				<web:route:view>home.html</web:route:view>
+				<web:route:data>home.php</web:route:data>
+				<web:route:props>css:/css/home.css;js:/js/home.js</web:route:props>
+			</web:route>
+			<web:route>
+				<web:route:id>error-404</web:route:id>
+				<web:route:view>error-404.html</web:route:view>
+			</web:route>
+		</web:routes>
+
+		<web:templates>
+			<web:template>
+				<web:template:id>web</web:template:id>
+				<web:template:dir>web/</web:template:dir>
+			</web:template>
+			<web:template>
+				<web:template:id>mobile</web:template:id>
+				<web:template:dir>mobile/</web:template:dir>
+			</web:template>
+		</web:templates>
+
+		<web:forms>
+			<web:form>
+				<web:form:id>request</web:form:id>
+				<web:form:class>Form.Decorator.Requestform</web:form:class>
+				<web:form:validator>default</web:form:validator>
+			</web:form>
+		</web:forms>
+  </parlance:web>
+</parlance>

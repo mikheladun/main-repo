@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<app name="Lemacon">
+    <themes>
+        <theme id="default" default="true" skeleton="template.html" />
+        <theme id="threecolumn" skeleton="template.html" />
+        <theme id="staging" skeleton="staging.html" />
+    </themes>
+    <pages>
+        <page id="home" url="home" />
+        <page id="about" url="about" />
+        <page id="about.2" url="about-2" />
+        <page id="about.3" url="about-3" />
+        <page id="contact" url="contact" />
+
+        <page id="redesign" baseurl="redesign" url="index" />
+        <page id="redesign.home" baseurl="redesign" url="home" />
+        <page id="redesign.about" baseurl="redesign" url="about" />
+        <page id="redesign.contact" baseurl="redesign" url="contact" />
+    </pages>
+    <formdecorators>
+        <formdecorator id="request" formid="request*" class="Form.Decorator.Requestform">
+            <validator name="default" />
+        </formdecorator>
+    </formdecorators>
+</app>

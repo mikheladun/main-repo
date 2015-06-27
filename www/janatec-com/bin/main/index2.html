@@ -1,0 +1,90 @@
+<!--#include virtual="/includes/page.php" -->
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<!--#include virtual="/skeleton/layout/title.php" -->
+<!--#include virtual="/skeleton/layout/meta.php" -->
+<!--#include virtual="/skeleton/layout/script.php" -->
+<!--#include virtual="/skeleton/layout/style.php" -->
+<script type="text/javascript" language="javascript">
+window.addEvent('domready', function(){
+	var accordion = new Accordion($$('.Toggler'), $$('.ContentDiv'), {
+	 opacity: false,
+	 onActive: function(toggler, element){
+		toggler.setStyle('border-bottom', 'none');
+		toggler.setStyle('background-color', '#666766');
+		toggler.setStyle('background-color', '#999933');
+		element.setStyle('border-bottom','1px solid #fff');
+		element.setStyle('padding-bottom','.3em');
+	 },
+	 onBackground: function(toggler, element){
+		toggler.setStyle('border-bottom', '1px solid #fff');
+		toggler.setStyle('background-color', '#666766');
+		element.setStyle('padding-bottom','0');
+	 }
+   });
+});
+</script>
+</head>
+<body>
+<div id="Wrapper">
+  <!--#include virtual="/skeleton/layout/top.php" -->
+  <div id="Container">
+	<div id="TopContent">
+	  <!--#include virtual="/main/top.php" -->
+	  <div class="Spacer"></div>
+	</div>
+	<div id="MainContent">
+		<div class="LeftContentDiv">
+			<!--#include virtual="/main/left.php" -->
+		</div>
+		<div class="MainContentDiv">
+			<h1><span class="BlkTxt">Expect more from us.</span></h1>
+			<!--#include virtual="/main/right.php" -->
+			<h2>Our clients demand world-class business and technology services and we are committed to exceeding their expectations.</h2>
+			<p>Janatec provides innovative business and software solutions, systems development and integration, as well as business consultancy services to the private and public sector.</p>
+			<p>From custom web applications development, enterprise integration solutions, eGovernment services, and strategic business consultancy, we help our clients make the most of their information and communications technology.</p>
+			<div id="accordion" class="Widget">
+				<h3 class="Toggler">Web-based Solutions</h3>
+				<div class="ContentDiv">
+					<p><img src="/images/img_widget_pe.gif" align="right" />We provide customized web-based solutions that enables our clients to be successful in the face of fast-paced change.</p>
+					<p>Our in-depth domain expertise and adoption of industry's highest quality standards and best practices is a critical enabler for us to deliver robust and scalable solutions, not just provide the latest technology applications. </p>
+					<p><a href="/services/web/"><span>Learn more</span></a><big><big>&nbsp;&raquo;</big></big></p>
+				</div>
+				<h3 class="Toggler">Internet Strategy</h3>
+				<div class="ContentDiv">
+					<p><img src="/images/img_widget_pe.gif" align="right" />Developing an effective Internet strategy demands much more than building a website. An internet strategy is long term planning executed to make a web site an integral part of a company's long term success. It is an exciting opportunity to incorporate the Internet into the total business strategy.</p>
+					<p>Our internet strategy services focus on four core areas:<br/>Visibility, Impression, Conversion, Retention.</p>
+					<p><a href="/services/strategy/"><span>Learn more</span></a><big><big>&nbsp;&raquo;</big></big></p>
+				</div>
+				<h3 class="Toggler">E-Government</h3>
+				<div class="ContentDiv">
+					<p><img src="/images/img_widget_pe.gif" align="right" />Our e-government services identify a common framework and direction for change across the public sector. It focuses on better services for citizens and businesses and more effective use of Government's information and communications technology resources.</p>
+					<p><a href="/services/egovernment/"><span>Learn more</span></a><big><big>&nbsp;&raquo;</big></big></p>
+				</div>
+				<h3 class="Toggler">Product Engineering</h3>
+				<div class="ContentDiv">
+					<p><img src="/images/img_widget_pe.gif" align="right" />We offer product development and engineering services both as an extension of your own engineering team and also via an outsourced delivery model.</p>
+					<p>These services accelerate the creation of software solutions to increate your competitiveness and extend the principles of standard application development methods to meet specific requirements of enterprise software products.</p>
+					<p><a href="/services/engineering/"><span>Learn more</span></a><big><big>&nbsp;&raquo;</big></big></p>
+				</div>
+				<h3 class="Toggler">Enterprise Integration</h3>
+				<div class="ContentDiv">
+					<p><img src="/images/img_widget_pe.gif" align="right" />Our breadth of knowledge and expertise in areas such as software engineering, computer networking, enterprise application integration, and business process management provides the greatest leverage needed by your organization to fuse together and manage the full range of its information and communications technology investments.</p>
+					<p><a href="/services/integration/"><span>Learn more</span></a><big><big>&nbsp;&raquo;</big></big></p>
+				</div>
+				<h3 class="Toggler">Business Consulting</h3>
+				<div class="ContentDiv">
+					<p><img src="/images/img_widget_pe.gif" align="right" />Our strategic business consulting services focus on streamlining processes, improving productivity, and aligning technology to business strategy.</p>
+					<p>We specialize in helping clients identify opportunities and ensure that the business and the systems people in their organization work together as a team.</p>
+					<p><a href="/services/consulting/"><span>Learn more</span></a><big><big>&nbsp;&raquo;</big></big></p>
+				</div>
+			</div>
+		</div>
+		<div class="Spacer"></div>
+	</div>
+  </div>
+  <!--#include virtual="/skeleton/layout/footer.php" -->
+</div>
+</body>
+</html>

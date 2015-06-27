@@ -1,0 +1,37 @@
+XBitHack on
+AddHandler php5-script .php
+
+AddType text/html .html
+AddHandler server-parsed .html
+
+RewriteEngine On
+RewriteBase /
+
+#########################   Main   #########################
+RewriteRule ^([a-zA-Z]+)/?$ /parlance.php?pid=$1 [QSA,L]
+RewriteRule ^/?$ /parlance.php?pid=home [QSA,L]
+
+#########################   Home   #########################
+RewriteRule ^home/([a-zA-Z]+)/?$ /parlance.php?pid=home.$1 [QSA,L]
+
+#########################   What We Do   #########################
+RewriteRule ^whatwedo/([a-zA-Z]+)/?$ /parlance.php?pid=whatwedo.$1 [QSA,L]
+
+#########################   Solutions For   #########################
+RewriteRule ^solutionsfor/([a-zA-Z]+)/?$ /parlance.php?pid=solutionsfor.$1 [QSA,L]
+
+#########################   Who We Are   #########################
+RewriteRule ^whoweare/([a-zA-Z]+)/?$ /parlance.php?pid=whoweare.$1 [QSA,L]
+
+#########################   Our Work   #########################
+RewriteRule ^ourwork/([a-zA-Z]+)/?$ /parlance.php?pid=ourwork.$1 [QSA,L]
+
+#########################   Careers   #########################
+#########################   Request Services   #########################
+RewriteRule ^request/([a-zA-Z]+)/?$ /parlance.php?pid=request.$1 [QSA,L]
+#########################   Site Feedback   #########################
+#########################   Contact   #########################
+
+# BEGIN (mt) controlled settings
+AddHandler php-latest .php
+# END (mt) controlled settings
